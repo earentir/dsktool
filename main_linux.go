@@ -325,6 +325,10 @@ func deviceIsRealDisk(device string, showPartitions bool) bool {
 	return (isSd || isHd || isNvme) && !hasNumber
 }
 
+func readdisk(device, outputfile string) {
+	readdiskLinux(device, outputfile)
+}
+
 func readdiskLinux(device, outputfile string) {
 	// Open the disk device file
 	disk, err := os.Open(device)

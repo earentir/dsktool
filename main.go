@@ -8,9 +8,8 @@ import (
 )
 
 var (
-	sectorSize   uint64
-	appversion   = "0.2.5"
-	deviceToRead *string
+	sectorSize uint64
+	appversion = "0.2.9"
 )
 
 func main() {
@@ -49,7 +48,7 @@ func main() {
 		)
 
 		cmd.Action = func() {
-			readdiskLinux(*deviceToRead, *outputfile)
+			readdisk(*deviceToRead, *outputfile)
 		}
 	})
 

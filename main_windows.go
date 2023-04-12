@@ -4,6 +4,13 @@
 package main
 
 import (
+	"compress/gzip"
+	"fmt"
+	"os"
+	"strings"
+	"syscall"
+	"unsafe"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -13,7 +20,39 @@ const (
 	OPEN_EXISTING                        = 0x3
 	GENERIC_READ                         = 0x80000000
 	IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
+	IOCTL_DISK_GET_DRIVE_GEOMETRY_EX     = 0x000700a0
+	IOCTL_DISK_GET_DRIVE_LAYOUT_EX       = 0x00070050
 )
+
+type DiskGeometry struct {
+	Cylinders         int64
+	MediaType         uint32
+	TracksPerCylinder uint32
+	SectorsPerTrack   uint32
+	BytesPerSector    uint32
+}
+
+type DiskGeometryEx struct {
+	Geometry DiskGeometry
+	DiskSize int64
+	Data     [1]byte
+}
+
+type PartitionInformationEx struct {
+	PartitionStyle   uint32
+	StartingOffset   int64
+	PartitionLength  int64
+	PartitionNumber  uint32
+	RewritePartition uint32
+	Gpt              windows.GUID
+	HiddenSectors    uint32
+}
+
+type DriveLayoutInformationEx struct {
+	PartitionStyle uint32
+	PartitionCount uint32
+	PartitionEntry [128]PartitionInformationEx
+}
 
 func listPartitions(diskDevice string) {
 	//this needs some work to pass the drive letter, also need to check if it actually works on windows :P
@@ -50,23 +89,23 @@ func listPartitionsWindows() {
 	}
 	defer windows.CloseHandle(hDisk)
 
-	var diskGeometry windows.DiskGeometryEx
-	err = windows.DeviceIoControl(hDisk, windows.IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, nil, 0, (*byte)(unsafe.Pointer(&diskGeometry)), uint32(unsafe.Sizeof(diskGeometry)), nil, nil)
+	var diskGeometry DiskGeometryEx
+	err = windows.DeviceIoControl(hDisk, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, nil, 0, (*byte)(unsafe.Pointer(&diskGeometry)), uint32(unsafe.Sizeof(diskGeometry)), nil, nil)
 	if err != nil {
 		fmt.Println("Error getting disk geometry:", err)
 		return
 	}
 
-	var driveLayout windows.DriveLayoutInformationEx
+	var driveLayout DriveLayoutInformationEx
 	driveLayoutSize := uint32(unsafe.Sizeof(driveLayout) + 128*unsafe.Sizeof(driveLayout.PartitionEntry[0]))
 	buffer := make([]byte, driveLayoutSize)
-	err = windows.DeviceIoControl(hDisk, windows.IOCTL_DISK_GET_DRIVE_LAYOUT_EX, nil, 0, &buffer[0], driveLayoutSize, nil, nil)
+	err = windows.DeviceIoControl(hDisk, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, nil, 0, &buffer[0], driveLayoutSize, nil, nil)
 	if err != nil {
 		fmt.Println("Error getting drive layout:", err)
 		return
 	}
 
-	driveLayout = *(*windows.DriveLayoutInformationEx)(unsafe.Pointer(&buffer[0]))
+	driveLayout = *(*DriveLayoutInformationEx)(unsafe.Pointer(&buffer[0]))
 
 	fmt.Printf("Found %d partitions on disk %d:\n", driveLayout.PartitionCount, diskNumber)
 	for i := uint32(0); i < driveLayout.PartitionCount; i++ {
@@ -131,7 +170,11 @@ func listRealDisksWindows() {
 	}
 }
 
-func readdiskWindows() {
+func readdisk(device, outputfile string) {
+	readdiskWindows(device, outputfile)
+}
+
+func readdiskWindows(device, outputfile string) {
 	// Open the disk device file using the syscall package
 	disk, err := syscall.CreateFile(
 		syscall.StringToUTF16Ptr("\\\\.\\F:"), // Replace "F:" with the drive letter of the disk
@@ -148,7 +191,7 @@ func readdiskWindows() {
 	defer syscall.CloseHandle(disk)
 
 	// Create a new file to write the data to
-	output, err := os.Create("disk.raw.gz")
+	output, err := os.Create(outputfile)
 	if err != nil {
 		// Handle error
 	}
@@ -168,4 +211,8 @@ func readdiskWindows() {
 		}
 		gzipWriter.Write(buf[:n])
 	}
+}
+
+func printDiskBytes(diskDevice string, numOfBytes int) {
+	fmt.Println("Windows unsupported for now")
 }
