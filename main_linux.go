@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -322,4 +323,48 @@ func deviceIsRealDisk(device string, showPartitions bool) bool {
 	hasNumber := strings.IndexFunc(device, unicode.IsDigit) != -1
 
 	return (isSd || isHd || isNvme) && !hasNumber
+}
+
+func readdiskLinux(device, outputfile string) {
+	// Open the disk device file
+	disk, err := os.Open(device)
+	if err != nil {
+		fmt.Println("Failed to open Device: ", device)
+	}
+	defer disk.Close()
+
+	// Create a new file to write the data to
+	output, err := os.Create(outputfile)
+	if err != nil {
+		fmt.Println("Failed to create output file: ", outputfile)
+	}
+	defer output.Close()
+
+	// Create a gzip writer
+	// bzip2Writer := bzip2.NewWriter(output)
+	gzipWriter := gzip.NewWriter(output)
+	defer gzipWriter.Close()
+
+	fmt.Println("Writing to Image", outputfile)
+	var count int = 0
+	var byteCount = 16384
+	// Use a buffer to read the data from the disk and write it to the file
+	buf := make([]byte, byteCount)
+	for {
+		n, err := disk.Read(buf)
+		if err != nil {
+			break
+		}
+		_, err = gzipWriter.Write(buf[:n])
+		if err != nil {
+			fmt.Println("Filed to create compressed stream, ", err.Error())
+		}
+		count++
+		output := count * byteCount
+		if output%1048576 == 0 {
+			fmt.Print("#")
+		}
+	}
+	fmt.Println()
+	fmt.Println("Written:", count*byteCount, "(", count, " Packets each ", byteCount, " bytes long )")
 }

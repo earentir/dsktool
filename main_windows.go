@@ -130,3 +130,42 @@ func listRealDisksWindows() {
 		}
 	}
 }
+
+func readdiskWindows() {
+	// Open the disk device file using the syscall package
+	disk, err := syscall.CreateFile(
+		syscall.StringToUTF16Ptr("\\\\.\\F:"), // Replace "F:" with the drive letter of the disk
+		syscall.GENERIC_READ,
+		syscall.FILE_SHARE_READ,
+		nil,
+		syscall.OPEN_EXISTING,
+		syscall.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		// Handle error
+	}
+	defer syscall.CloseHandle(disk)
+
+	// Create a new file to write the data to
+	output, err := os.Create("disk.raw.gz")
+	if err != nil {
+		// Handle error
+	}
+	defer output.Close()
+
+	// Create a gzip writer
+	gzipWriter := gzip.NewWriter(output)
+	defer gzipWriter.Close()
+
+	// Use a buffer to read the data from the disk and write it to the file
+	buf := make([]byte, 1024)
+	for {
+		var n uint32
+		err := syscall.ReadFile(disk, buf, &n, nil)
+		if err != nil {
+			break
+		}
+		gzipWriter.Write(buf[:n])
+	}
+}

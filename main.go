@@ -41,6 +41,18 @@ func main() {
 		}
 	})
 
+	app.Command("i image", "Image A Disk", func(cmd *cli.Cmd) {
+		cmd.Spec = "OUTPUTFILE"
+
+		var (
+			outputfile = cmd.StringArg("OUTPUTFILE", "sda.gz", "File to write the Image into")
+		)
+
+		cmd.Action = func() {
+			readdiskLinux(*deviceToRead, *outputfile)
+		}
+	})
+
 	err := app.Run(os.Args)
 	if err != nil {
 		fmt.Println(err.Error())
