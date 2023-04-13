@@ -41,14 +41,38 @@ func main() {
 	})
 
 	app.Command("i image", "Image A Disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "OUTPUTFILE"
+		cmd.Spec = "OUTPUTFILE [-g | -b | -z | -s | -l]"
 
 		var (
 			outputfile = cmd.StringArg("OUTPUTFILE", "sda.gz", "File to write the Image into")
+			gzip       = cmd.BoolOpt("g", true, "gzip (Default)")
+			bzip       = cmd.BoolOpt("b", false, "bzip2")
+			zstd       = cmd.BoolOpt("z", false, "zstd the Image")
+			snappy     = cmd.BoolOpt("s", false, "snappy the Image")
+			zlib       = cmd.BoolOpt("l", false, "zlib the Image")
 		)
 
 		cmd.Action = func() {
-			readdisk(*deviceToRead, *outputfile)
+			if *gzip && *bzip && *zstd && *snappy && *zlib {
+				fmt.Println("You can only use one compression method")
+				os.Exit(1)
+			}
+
+			if *gzip {
+				readdisk(*deviceToRead, *outputfile, "gzip")
+			}
+			if *bzip {
+				readdisk(*deviceToRead, *outputfile, "bzip2")
+			}
+			if *zstd {
+				readdisk(*deviceToRead, *outputfile, "zstd")
+			}
+			if *snappy {
+				readdisk(*deviceToRead, *outputfile, "snappy")
+			}
+			if *zlib {
+				readdisk(*deviceToRead, *outputfile, "zlib")
+			}
 		}
 	})
 

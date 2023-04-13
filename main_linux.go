@@ -5,7 +5,6 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -13,6 +12,12 @@ import (
 	"os"
 	"strings"
 	"unicode"
+
+	"github.com/dsnet/compress/bzip2"
+	"github.com/klauspost/compress/gzip"
+	"github.com/klauspost/compress/s2"
+	"github.com/klauspost/compress/zlib"
+	"github.com/klauspost/compress/zstd"
 
 	"golang.org/x/sys/unix"
 )
@@ -325,15 +330,16 @@ func deviceIsRealDisk(device string, showPartitions bool) bool {
 	return (isSd || isHd || isNvme) && !hasNumber
 }
 
-func readdisk(device, outputfile string) {
-	readdiskLinux(device, outputfile)
+func readdisk(device, outputfile, compressionAlgorithm string) {
+	readdiskLinux(device, outputfile, compressionAlgorithm)
 }
 
-func readdiskLinux(device, outputfile string) {
+func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 	// Open the disk device file
 	disk, err := os.Open(device)
 	if err != nil {
 		fmt.Println("Failed to open Device: ", device)
+		return
 	}
 	defer disk.Close()
 
@@ -341,13 +347,33 @@ func readdiskLinux(device, outputfile string) {
 	output, err := os.Create(outputfile)
 	if err != nil {
 		fmt.Println("Failed to create output file: ", outputfile)
+		return
 	}
 	defer output.Close()
 
-	// Create a gzip writer
-	// bzip2Writer := bzip2.NewWriter(output)
-	gzipWriter := gzip.NewWriter(output)
-	defer gzipWriter.Close()
+	var compressedWriter io.WriteCloser
+
+	switch compressionAlgorithm {
+	case "gzip":
+		compressedWriter = gzip.NewWriter(output)
+	case "zlib":
+		compressedWriter = zlib.NewWriter(output)
+	case "bzip2":
+		compressedWriter, err = bzip2.NewWriter(output, &bzip2.WriterConfig{})
+	case "snappy":
+		compressedWriter = s2.NewWriter(output)
+	case "zstd":
+		compressedWriter, err = zstd.NewWriter(output)
+	default:
+		fmt.Println("Unsupported compression algorithm:", compressionAlgorithm)
+		return
+	}
+
+	if err != nil {
+		fmt.Println("Failed to create compression writer: ", err.Error())
+		return
+	}
+	defer compressedWriter.Close()
 
 	fmt.Println("Writing to Image", outputfile)
 	var count int = 0
@@ -359,9 +385,10 @@ func readdiskLinux(device, outputfile string) {
 		if err != nil {
 			break
 		}
-		_, err = gzipWriter.Write(buf[:n])
+
+		_, err = compressedWriter.Write(buf[:n])
 		if err != nil {
-			fmt.Println("Filed to create compressed stream, ", err.Error())
+			fmt.Println("Failed to create compressed stream, ", err.Error())
 		}
 		count++
 		output := count * byteCount
