@@ -45,15 +45,16 @@ func main() {
 
 		var (
 			outputfile = cmd.StringArg("OUTPUTFILE", "sda.gz", "File to write the Image into")
-			gzip       = cmd.BoolOpt("g", true, "gzip (Default)")
+			gzip       = cmd.BoolOpt("g", true, "gzip")
 			bzip       = cmd.BoolOpt("b", false, "bzip2")
-			zstd       = cmd.BoolOpt("z", false, "zstd the Image")
-			snappy     = cmd.BoolOpt("s", false, "snappy the Image")
-			zlib       = cmd.BoolOpt("l", false, "zlib the Image")
+			zstd       = cmd.BoolOpt("t", false, "zstd")
+			snappy     = cmd.BoolOpt("s", false, "snappy")
+			zlib       = cmd.BoolOpt("l", false, "zlib")
+			zip        = cmd.BoolOpt("z", false, "zip")
 		)
 
 		cmd.Action = func() {
-			if *gzip && *bzip && *zstd && *snappy && *zlib {
+			if *gzip && *bzip && *zstd && *snappy && *zlib && *zip {
 				fmt.Println("You can only use one compression method")
 				os.Exit(1)
 			}
@@ -61,17 +62,20 @@ func main() {
 			if *gzip {
 				readdisk(*deviceToRead, *outputfile, "gzip")
 			}
+			if *zlib {
+				readdisk(*deviceToRead, *outputfile, "zlib")
+			}
 			if *bzip {
 				readdisk(*deviceToRead, *outputfile, "bzip2")
-			}
-			if *zstd {
-				readdisk(*deviceToRead, *outputfile, "zstd")
 			}
 			if *snappy {
 				readdisk(*deviceToRead, *outputfile, "snappy")
 			}
-			if *zlib {
-				readdisk(*deviceToRead, *outputfile, "zlib")
+			if *zstd {
+				readdisk(*deviceToRead, *outputfile, "zstd")
+			}
+			if *zip {
+				readdisk(*deviceToRead, *outputfile, "zstd")
 			}
 		}
 	})

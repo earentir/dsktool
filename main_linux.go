@@ -4,6 +4,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -15,7 +16,7 @@ import (
 
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/gzip"
-	"github.com/klauspost/compress/s2"
+	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zlib"
 	"github.com/klauspost/compress/zstd"
 
@@ -351,7 +352,8 @@ func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 	}
 	defer output.Close()
 
-	var compressedWriter io.WriteCloser
+	var compressedWriter io.Writer
+	var zipWriter *zip.Writer
 
 	switch compressionAlgorithm {
 	case "gzip":
@@ -361,9 +363,17 @@ func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 	case "bzip2":
 		compressedWriter, err = bzip2.NewWriter(output, &bzip2.WriterConfig{})
 	case "snappy":
-		compressedWriter = s2.NewWriter(output)
+		compressedWriter = snappy.NewWriter(output)
 	case "zstd":
 		compressedWriter, err = zstd.NewWriter(output)
+	case "zip":
+		zipWriter = zip.NewWriter(output)
+		zipFile, err := zipWriter.Create("compressedData")
+		if err != nil {
+			fmt.Println("Failed to create zip entry:", err.Error())
+			return
+		}
+		compressedWriter = zipFile
 	default:
 		fmt.Println("Unsupported compression algorithm:", compressionAlgorithm)
 		return
@@ -373,7 +383,6 @@ func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 		fmt.Println("Failed to create compression writer: ", err.Error())
 		return
 	}
-	defer compressedWriter.Close()
 
 	fmt.Println("Writing to Image", outputfile)
 	var count int = 0
@@ -398,4 +407,13 @@ func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 	}
 	fmt.Println()
 	fmt.Println("Written:", count*byteCount, "(", count, " Packets each ", byteCount, " bytes long )")
+
+	if zipWriter != nil {
+		err := zipWriter.Close()
+		if err != nil {
+			fmt.Println("Failed to close zip writer:", err.Error())
+		}
+	} else {
+		compressedWriter.(io.WriteCloser).Close()
+	}
 }
