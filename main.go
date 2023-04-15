@@ -37,7 +37,7 @@ func main() {
 
 	app.Command("l list", "List the first 512 bytes of the disk", func(cmd *cli.Cmd) {
 		cmd.Action = func() {
-			printDiskBytes(*deviceToRead, 512)
+			printDiskBytes(*deviceToRead, 512, 0)
 		}
 	})
 

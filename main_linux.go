@@ -28,15 +28,11 @@ func listPartitions(diskDevice string) {
 	listPartitionsLinux(diskDevice)
 }
 
-func listDisks() {
-	listRealDisksLinux()
-}
-
-func printDiskBytes(diskDevice string, numOfBytes int) {
+func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 	checkWSL()
-	err := printFirstNBytes(diskDevice, numOfBytes)
+	err := printFirstNBytes(diskDevice, numOfBytes, startIndex)
 	if err != nil {
-		fmt.Println("Error reading the first N bytes:", err)
+		fmt.Printf("Error reading %d bytes from index %d, error: %v\n", numOfBytes, startIndex, err)
 	}
 }
 
@@ -249,16 +245,17 @@ func detectExtFilesystem(file *os.File, offset int64) string {
 	}
 }
 
-func isPrintable(b byte) bool {
-	return b >= 32 && b <= 126
-}
-
-func printFirstNBytes(device string, numOfBytes int) error {
+func printFirstNBytes(device string, numOfBytes int, startIndex int64) error {
 	file, err := os.Open(device)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
+
+	_, err = file.Seek(startIndex, io.SeekStart)
+	if err != nil {
+		return err
+	}
 
 	buf := make([]byte, numOfBytes)
 	_, err = io.ReadFull(file, buf)
@@ -281,7 +278,7 @@ func printFirstNBytes(device string, numOfBytes int) error {
 				charStr += "."
 			}
 		}
-		fmt.Printf("%08X  %-49s  |%s|\n", i, hexStr, charStr)
+		fmt.Printf("%08X  %-49s  |%s|\n", startIndex+int64(i), hexStr, charStr)
 	}
 
 	return nil
