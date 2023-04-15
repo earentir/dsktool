@@ -353,7 +353,7 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 	case "bzip2":
 		compressedWriter, err = bzip2.NewWriter(output, &bzip2.WriterConfig{})
 	case "snappy":
-		compressedWriter = snappy.NewWriter(output)
+		compressedWriter = snappy.NewBufferedWriter(output)
 	case "zstd":
 		compressedWriter, err = zstd.NewWriter(output)
 	case "zip":
