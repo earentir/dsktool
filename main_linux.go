@@ -413,6 +413,7 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 }
 
 func hasReadPermission(device string) bool {
+	checkWSL()
 	file, err := os.OpenFile(device, os.O_RDONLY, 0)
 	if err != nil {
 		return false
