@@ -40,7 +40,7 @@ func printDiskBytes(diskDevice string, numOfBytes int) {
 	}
 }
 
-func listPartitionsLinux(diskDevice string) {
+func listPartitions(diskDevice string) {
 	//Start the partition table parsing
 	file, err := os.Open(diskDevice)
 	if err != nil {
@@ -302,7 +302,7 @@ func checkWSL() bool {
 	return WSL
 }
 
-func listRealDisksLinux() {
+func listDisks() {
 	devices, err := os.ReadDir("/dev")
 	if err != nil {
 		fmt.Printf("Error reading /dev directory: %v\n", err)
@@ -332,10 +332,6 @@ func deviceIsRealDisk(device string, showPartitions bool) bool {
 }
 
 func readdisk(device, outputfile, compressionAlgorithm string) {
-	readdiskLinux(device, outputfile, compressionAlgorithm)
-}
-
-func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 	// Open the disk device file
 	disk, err := os.Open(device)
 	if err != nil {
