@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"syscall"
 	"unicode"
 
 	"github.com/dsnet/compress/bzip2"
@@ -306,7 +307,12 @@ func listDisks() {
 	for _, device := range devices {
 		devicePath := "/dev/" + device.Name()
 		if deviceIsRealDisk(devicePath, false) {
-			fmt.Println(devicePath)
+			totalSize, usedSize, freeSize, err := getDiskSpace(devicePath)
+			if err != nil {
+				fmt.Printf("Error getting disk space for %s: %v\n", devicePath, err)
+				continue
+			}
+			fmt.Printf("%s - Total: %d bytes, Used: %d bytes, Free: %d bytes\n", devicePath, totalSize, usedSize, freeSize)
 		}
 	}
 }
@@ -417,4 +423,18 @@ func hasReadPermission(device string) bool {
 	}
 	file.Close()
 	return true
+}
+
+func getDiskSpace(devicePath string) (totalSize int64, usedSize int64, freeSize int64, err error) {
+	fs := syscall.Statfs_t{}
+	err = syscall.Statfs(devicePath, &fs)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	totalSize = int64(fs.Blocks) * int64(fs.Bsize)
+	freeSize = int64(fs.Bfree) * int64(fs.Bsize)
+	availableSize := int64(fs.Bavail) * int64(fs.Bsize)
+	usedSize = totalSize - availableSize
+	return totalSize, usedSize, freeSize, nil
 }
