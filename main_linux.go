@@ -30,7 +30,6 @@ const (
 )
 
 func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
-	checkWSL()
 	err := printFirstNBytes(diskDevice, numOfBytes, startIndex)
 	if err != nil {
 		fmt.Printf("Error reading %d bytes from index %d, error: %v\n", numOfBytes, startIndex, err)
