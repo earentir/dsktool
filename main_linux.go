@@ -23,10 +23,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func listPartitions(diskDevice string) {
-	checkWSL()
-	listPartitionsLinux(diskDevice)
-}
+const (
+	red   = "\033[31m"
+	blink = "\033[5m"
+	reset = "\033[0m"
+)
 
 func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 	checkWSL()
@@ -293,7 +294,7 @@ func checkWSL() bool {
 	WSL := strings.Contains(strings.ToLower(string(data)), "wsl")
 
 	if WSL {
-		fmt.Println("Running inside WSL!")
+		fmt.Println(red+blink, "Running inside WSL!", reset)
 	}
 
 	return WSL
