@@ -417,3 +417,12 @@ func readdiskLinux(device, outputfile, compressionAlgorithm string) {
 		compressedWriter.(io.WriteCloser).Close()
 	}
 }
+
+func hasReadPermission(device string) bool {
+	file, err := os.OpenFile(device, os.O_RDONLY, 0)
+	if err != nil {
+		return false
+	}
+	file.Close()
+	return true
+}

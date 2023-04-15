@@ -216,3 +216,43 @@ func readdiskWindows(device, outputfile string) {
 func printDiskBytes(diskDevice string, numOfBytes int) {
 	fmt.Println("Windows unsupported for now")
 }
+
+func hasReadPermission(device string) bool {
+	lpFileName, _ := syscall.UTF16PtrFromString(device)
+	var sd *syscall.SECURITY_DESCRIPTOR
+
+	err := syscall.GetFileSecurity(
+		lpFileName,
+		syscall.DACL_SECURITY_INFORMATION,
+		(*byte)(unsafe.Pointer(sd)),
+		0,
+		&syscall.SECURITY_DESCRIPTOR_REVISION)
+	if err != nil {
+		return false
+	}
+
+	var genericMapping syscall.GENERIC_MAPPING
+	genericMapping.GenericRead = syscall.FILE_GENERIC_READ
+	genericMapping.GenericWrite = syscall.FILE_GENERIC_WRITE
+	genericMapping.GenericExecute = syscall.FILE_GENERIC_EXECUTE
+	genericMapping.GenericAll = syscall.FILE_ALL_ACCESS
+
+	var privileges syscall.PRIVILEGE_SET
+	var grantedAccess uint32
+	var accessStatus bool
+
+	err = syscall.AccessCheck(
+		(*byte)(unsafe.Pointer(sd)),
+		syscall.Token(nil),
+		syscall.FILE_GENERIC_READ,
+		&genericMapping,
+		&privileges,
+		uint32(unsafe.Sizeof(privileges)),
+		&grantedAccess,
+		&accessStatus)
+	if err != nil || !accessStatus {
+		return false
+	}
+
+	return true
+}
