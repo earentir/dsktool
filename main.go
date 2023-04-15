@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	cli "github.com/jawher/mow.cli"
 )
@@ -12,15 +13,27 @@ var (
 	appversion = "0.2.9"
 )
 
+// Windows is not tested at all, please be ware
 func main() {
 
 	app := cli.App("disktool", "Various Disk Tools")
 	app.Spec = "DEVICE"
 	app.Version("v version", appversion)
 
-	var (
+	var deviceToRead *string
+
+	//check if we are on windows
+	if runtime.GOOS == "windows" {
+		deviceToRead = app.StringArg("DEVICE", "c", "Disk To Use")
+	} else {
 		deviceToRead = app.StringArg("DEVICE", "/dev/sda", "Disk To Use")
-	)
+	}
+
+	//Exit if we don't have permission to read the device
+	if !hasReadPermission(*deviceToRead) {
+		fmt.Printf("No permission to read the device: %s, try with elevated priviledges\n", *deviceToRead)
+		os.Exit(13)
+	}
 
 	app.Command("l list", "List the first 512 bytes of the disk", func(cmd *cli.Cmd) {
 		cmd.Action = func() {
