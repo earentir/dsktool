@@ -375,6 +375,7 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 	}
 
 	fmt.Println("Writing to Image", outputfile)
+	fmt.Println("Printing a # every 10MB")
 	var count int = 0
 	var byteCount = 16384
 	// Use a buffer to read the data from the disk and write it to the file
@@ -391,7 +392,7 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 		}
 		count++
 		output := count * byteCount
-		if output%1048576 == 0 {
+		if output%10485760 == 0 {
 			fmt.Print("#")
 		}
 	}
