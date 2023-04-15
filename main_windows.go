@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func listPartitions() {
+func listPartitions(diskDevice string) {
 
 	driveLetter := "C" // Change this to the desired drive letter
 	diskNumber, err := driveLetterToDiskNumber(driveLetter)
@@ -121,7 +121,7 @@ func listDisks() {
 	}
 }
 
-func readdisk(device, outputfile string) {
+func readdisk(device, outputfile, compressionAlgorithm string) {
 	// Open the disk device file using the syscall package
 	disk, err := syscall.CreateFile(
 		syscall.StringToUTF16Ptr("\\\\.\\F:"), // Replace "F:" with the drive letter of the disk
@@ -160,7 +160,7 @@ func readdisk(device, outputfile string) {
 	}
 }
 
-func printDiskBytes(diskDevice string, numOfBytes int) {
+func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 	fmt.Println("Windows unsupported for now")
 }
 
