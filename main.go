@@ -54,16 +54,16 @@ func main() {
 	})
 
 	app.Command("i image", "Image A Disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "OUTPUTFILE [-g | -b | -z | -s | -l]"
+		cmd.Spec = "OUTPUTFILE [--gzip | --bzip2 | --zip | --snappy | --zlib | --zstd]"
 
 		var (
 			outputfile = cmd.StringArg("OUTPUTFILE", "sda.gz", "File to write the Image into")
-			gzip       = cmd.BoolOpt("g", true, "gzip")
-			bzip       = cmd.BoolOpt("b", false, "bzip2")
-			zstd       = cmd.BoolOpt("t", false, "zstd")
-			snappy     = cmd.BoolOpt("s", false, "snappy")
-			zlib       = cmd.BoolOpt("l", false, "zlib")
-			zip        = cmd.BoolOpt("z", false, "zip")
+			gzip       = cmd.BoolOpt("gzip", true, "gzip")
+			bzip       = cmd.BoolOpt("bzip2", false, "bzip2")
+			zstd       = cmd.BoolOpt("zstd", false, "zstd")
+			snappy     = cmd.BoolOpt("snappy", false, "snappy")
+			zlib       = cmd.BoolOpt("zlib", false, "zlib")
+			zip        = cmd.BoolOpt("zip", false, "zip")
 		)
 
 		cmd.Action = func() {
