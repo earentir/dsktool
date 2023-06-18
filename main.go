@@ -9,7 +9,7 @@ import (
 
 var (
 	sectorSize uint64
-	appversion = "0.2.9"
+	appversion = "0.2.11"
 )
 
 // Windows is not tested at all, please be ware
@@ -65,28 +65,29 @@ func main() {
 				os.Exit(13)
 			}
 
-			if *gzip && *bzip && *zstd && *snappy && *zlib && *zip {
+			compressMethods := map[string]*bool{
+				"gzip":   gzip,
+				"zlib":   zlib,
+				"bzip2":  bzip,
+				"snappy": snappy,
+				"zstd":   zstd,
+				"zip":    zip,
+			}
+
+			selectedMethods := make([]string, 0)
+			for method, flag := range compressMethods {
+				if *flag {
+					selectedMethods = append(selectedMethods, method)
+				}
+			}
+
+			if len(selectedMethods) > 1 {
 				fmt.Println("You can only use one compression method")
 				os.Exit(1)
 			}
 
-			if *gzip {
-				readdisk(*deviceToRead, *outputfile, "gzip")
-			}
-			if *zlib {
-				readdisk(*deviceToRead, *outputfile, "zlib")
-			}
-			if *bzip {
-				readdisk(*deviceToRead, *outputfile, "bzip2")
-			}
-			if *snappy {
-				readdisk(*deviceToRead, *outputfile, "snappy")
-			}
-			if *zstd {
-				readdisk(*deviceToRead, *outputfile, "zstd")
-			}
-			if *zip {
-				readdisk(*deviceToRead, *outputfile, "zstd")
+			if len(selectedMethods) == 1 {
+				readdisk(*deviceToRead, *outputfile, selectedMethods[0])
 			}
 		}
 	})

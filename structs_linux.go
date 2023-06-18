@@ -1,6 +1,6 @@
 package main
 
-type GPTHeader struct {
+type gptHeader struct {
 	Signature           [8]byte
 	Revision            [4]byte
 	HeaderSize          uint32
@@ -17,7 +17,7 @@ type GPTHeader struct {
 	PartEntryArrayCRC32 uint32
 }
 
-type GPTPartition struct {
+type gptPartition struct {
 	TypeGUID       [16]byte
 	UniqueGUID     [16]byte
 	FirstLBA       uint64
@@ -26,7 +26,7 @@ type GPTPartition struct {
 	PartitionName  [72]byte
 }
 
-type MBRPartition struct {
+type mbrPartition struct {
 	Status      uint8
 	_           [3]byte
 	Type        uint8
@@ -35,13 +35,13 @@ type MBRPartition struct {
 	Sectors     uint32
 }
 
-type MBR struct {
+type mbrStruct struct {
 	_          [446]byte
-	Partitions [4]MBRPartition
+	Partitions [4]mbrPartition
 	Signature  uint16
 }
 
-type FileSystem struct {
+type fileSystemStruct struct {
 	Name      string
 	Signature []byte
 	Offset    int64

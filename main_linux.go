@@ -60,7 +60,7 @@ func listPartitions(diskDevice string) {
 		log.Fatalf("Error seeking disk: %v", err)
 	}
 
-	header := GPTHeader{}
+	header := gptHeader{}
 	err = binary.Read(file, binary.LittleEndian, &header)
 	if err != nil {
 		log.Fatalf("Error reading GPT header: %v", err)
@@ -71,10 +71,10 @@ func listPartitions(diskDevice string) {
 		log.Fatalf("Error seeking disk: %v", err)
 	}
 
-	partitions := make([]GPTPartition, header.NumPartEntries)
+	partitions := make([]gptPartition, header.NumPartEntries)
 
 	for i := uint32(0); i < header.NumPartEntries; i++ {
-		partition := GPTPartition{}
+		partition := gptPartition{}
 		_, err = file.Seek(int64(header.PartitionEntryLBA*512)+int64(i*header.PartEntrySize), 0)
 		if err != nil {
 			log.Fatalf("Error seeking disk: %v", err)
@@ -96,14 +96,14 @@ func listPartitions(diskDevice string) {
 			partitionName := string(part.PartitionName[:])
 			totalSectors := part.LastLBA - part.FirstLBA + 1
 
-			fsType := DetectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
+			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
 			fmt.Printf("  %d. TypeGUID: %x, UniqueGUID: %x, FirstLBA: %d, LastLBA: %d, Name: %s, FileSystem: %s, SectorSize: %d bytes, TotalSectors: %d, Total: %d bytes\n", i+1, part.TypeGUID, part.UniqueGUID, part.FirstLBA, part.LastLBA, partitionName, fsType, sectorSize, totalSectors, totalSectors*sectorSize/1024/1024)
 		}
 	}
 }
 
 func readMBRPartitions(file *os.File) {
-	mbr := MBR{}
+	mbr := mbrStruct{}
 	err := binary.Read(file, binary.LittleEndian, &mbr)
 	if err != nil {
 		log.Fatalf("Error reading MBR: %v", err)
@@ -118,7 +118,7 @@ func readMBRPartitions(file *os.File) {
 	fmt.Println("Partitions:")
 	for i, part := range mbr.Partitions {
 		if part.Sectors != 0 {
-			fsType := DetectFileSystem(file, int64(part.FirstSector*uint32(sectorSize)))
+			fsType := detectFileSystem(file, int64(part.FirstSector*uint32(sectorSize)))
 			fmt.Printf("  %d. Type: 0x%02x, FirstSector: %d, Sectors: %d, FileSystem: %s, SectorSize: %d bytes, Total: %d bytes\n", i+1, part.Type, part.FirstSector, part.Sectors, fsType, sectorSize, part.Sectors*uint32(sectorSize)/1024/1024)
 		}
 	}
@@ -130,7 +130,7 @@ func isGPTDisk(file *os.File) bool {
 		log.Fatalf("Error seeking disk: %v", err)
 	}
 
-	header := GPTHeader{}
+	header := gptHeader{}
 	err = binary.Read(file, binary.LittleEndian, &header)
 	if err != nil {
 		log.Fatalf("Error reading GPT header: %v", err)
@@ -148,8 +148,8 @@ func getSectorSize(file *os.File) int {
 	return sectorSize
 }
 
-func DetectFileSystem(file *os.File, offset int64) string {
-	fsList := []FileSystem{
+func detectFileSystem(file *os.File, offset int64) string {
+	fsList := []fileSystemStruct{
 		{Name: "Amiga FFS", Signature: []byte{0x44, 0x4F, 0x53}, Offset: 0x3400},
 		{Name: "APFS", Signature: []byte("NXSB"), Offset: 0},
 		{Name: "AUFS (SunOS)", Signature: []byte{0x2a, 0x2a, 0x2a, 0x14}, Offset: 0},
@@ -382,7 +382,7 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 
 	fmt.Println("Writing to Image", outputfile)
 	fmt.Println("Printing a # every 10MB")
-	var count int = 0
+	var count int
 	var byteCount = 16384
 	// Use a buffer to read the data from the disk and write it to the file
 	buf := make([]byte, byteCount)
