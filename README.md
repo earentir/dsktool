@@ -4,7 +4,7 @@ Tools I need often
 Windows is mostly written in blind.
 
 NOT for production use
-
+```
 Usage: disktool [OPTIONS] COMMAND [arg...]
 
 Various Disk Tools
@@ -19,3 +19,4 @@ Commands:
   i, image              Image A Disk
                         
 Run 'disktool COMMAND --help' for more information on a command.
+```
