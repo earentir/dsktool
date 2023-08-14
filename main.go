@@ -7,24 +7,25 @@ import (
 	cli "github.com/jawher/mow.cli"
 )
 
-var (
-	sectorSize uint64
-	appversion = "0.2.11"
-)
-
 // Windows is not tested at all, please be ware
 func main() {
 
-	app := cli.App("disktool", "Various Disk Tools")
+	app := cli.App("dsktool", "Earentir Disk Tools")
 	app.Version("v version", appversion)
 
-	app.Command("l list", "List the first 512 bytes of the disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "DEVICE"
-		deviceToRead := cmd.StringArg("DEVICE", "", "Disk To Use")
+	app.Command("l list", "List bytes from disk", func(cmd *cli.Cmd) {
+		cmd.Spec = "DEVICE [--bytes] [--offset]"
+
+		var (
+			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
+			bytes        = cmd.IntOpt("bytes", 512, "Number of bytes to read")
+			offset       = cmd.IntOpt("offset", 0, "Offset to start reading from")
+		)
 
 		cmd.Action = func() {
 			checkForPerms(*deviceToRead)
-			printDiskBytes(*deviceToRead, 512, 0)
+			//This is not good, we cant use an offset larger than 2^32
+			printDiskBytes(*deviceToRead, *bytes, int64(*offset))
 		}
 	})
 
