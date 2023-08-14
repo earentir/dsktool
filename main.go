@@ -13,19 +13,9 @@ func main() {
 	app := cli.App("dsktool", "Earentir Disk Tools")
 	app.Version("v version", appversion)
 
-	app.Command("l list", "List bytes from disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "DEVICE [--bytes] [--offset]"
-
-		var (
-			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
-			bytes        = cmd.IntOpt("bytes", 512, "Number of bytes to read")
-			offset       = cmd.IntOpt("offset", 0, "Offset to start reading from")
-		)
-
+	app.Command("d disk disks", "List Disks", func(cmd *cli.Cmd) {
 		cmd.Action = func() {
-			checkForPerms(*deviceToRead)
-			//This is not good, we cant use an offset larger than 2^32
-			printDiskBytes(*deviceToRead, *bytes, int64(*offset))
+			listDisks()
 		}
 	})
 
@@ -39,9 +29,19 @@ func main() {
 		}
 	})
 
-	app.Command("d disk disks", "List Disks", func(cmd *cli.Cmd) {
+	app.Command("l list", "List bytes from disk", func(cmd *cli.Cmd) {
+		cmd.Spec = "DEVICE [--bytes] [--offset]"
+
+		var (
+			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
+			bytes        = cmd.IntOpt("bytes", 512, "Number of bytes to read")
+			offset       = cmd.IntOpt("offset", 0, "Offset to start reading from")
+		)
+
 		cmd.Action = func() {
-			listDisks()
+			checkForPerms(*deviceToRead)
+			//This is not good, we cant use an offset larger than 2^32
+			printDiskBytes(*deviceToRead, *bytes, int64(*offset))
 		}
 	})
 
