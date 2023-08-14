@@ -44,6 +44,21 @@ func main() {
 		}
 	})
 
+	app.Command("b bench benchmaks", "Benchmark Disk", func(cmd *cli.Cmd) {
+		cmd.Spec = "[--size] [--dir] [--iterations]"
+
+		var (
+			size       = cmd.IntOpt("size", 1024, "Size of the file to write in MB")
+			dir        = cmd.StringOpt("dir", ".", "Directory to write the file to")
+			iterations = cmd.IntOpt("iterations", 5, "Number of iterations to run")
+		)
+
+		cmd.Action = func() {
+			checkForPerms(*dir)
+			benchFullTest(*size, *iterations, *dir)
+		}
+	})
+
 	app.Command("i image", "Image A Disk", func(cmd *cli.Cmd) {
 		cmd.Spec = "DEVICE OUTPUTFILE [--gzip | --bzip2 | --zip | --snappy | --zlib | --zstd]"
 
