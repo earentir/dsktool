@@ -93,6 +93,7 @@ func listPartitions(diskDevice string) {
 	// const diskTmpl = "Disk           : {{.}}"
 	const partitionTmpl = `
 Name           : {{.Name}}
+Partition Name : {{.PartitionName}}
 TypeGUID       : {{.TypeGUIDStr}}
 UniqueGUID     : {{.UniqueGUIDStr}}
 FirstLBA       : {{.Partition.FirstLBA}}
