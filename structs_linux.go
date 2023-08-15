@@ -27,6 +27,8 @@ type gptPartition struct {
 }
 
 type gptPartitionDisplay struct {
+	Disk          string
+	PartitionName string
 	Partition     gptPartition
 	Name          string
 	Filesystem    string

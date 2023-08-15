@@ -90,7 +90,7 @@ func listPartitions(diskDevice string) {
 		}
 	}
 
-	const diskTmpl = "Disk           : {{.}}"
+	// const diskTmpl = "Disk           : {{.}}"
 	const partitionTmpl = `
 Name           : {{.Name}}
 TypeGUID       : {{.TypeGUIDStr}}
@@ -104,25 +104,32 @@ Total          : {{.Total}} MB
 `
 
 	// Execute Disk Template
-	tmpl, err := template.New("disk").Parse(diskTmpl)
+	// tmpl, err := template.New("disk").Parse(diskTmpl)
+	// if err != nil {
+	// 	log.Fatalf("Error parsing disk template: %v", err)
+	// }
+
+	// err = tmpl.Execute(os.Stdout, diskDevice)
+	// if err != nil {
+	// 	log.Fatalf("Error executing disk template: %v", err)
+	// }
+	// fmt.Println()
+
+	tmpl, err := template.New("disk").Parse(partitionTmpl)
 	if err != nil {
 		log.Fatalf("Error parsing disk template: %v", err)
 	}
 
-	err = tmpl.Execute(os.Stdout, diskDevice)
-	if err != nil {
-		log.Fatalf("Error executing disk template: %v", err)
-	}
-	fmt.Println()
-
 	// Prepare the partitions data for display
 	var displayPartitions []gptPartitionDisplay
-	for _, part := range partitions {
+	for i, part := range partitions {
 		if part.FirstLBA != 0 {
 			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
 			totalSectors := part.LastLBA - part.FirstLBA + 1
 
 			displayPartitions = append(displayPartitions, gptPartitionDisplay{
+				Disk:          diskDevice,
+				PartitionName: fmt.Sprintf("%s%d", diskDevice, i),
 				Partition:     part,
 				Name:          string(part.PartitionName[:]),
 				Filesystem:    fsType,
