@@ -45,7 +45,7 @@ func listPartitions(diskDevice string) {
 	sectorSize = uint64(getSectorSize(file))
 
 	if !isGPTDisk(file) {
-		fmt.Println("MBR disk")
+		fmt.Println("Partition Type : MBR")
 		_, err := file.Seek(0, 0)
 		if err != nil {
 			log.Fatalf("Error seeking disk: %v", err)
@@ -53,7 +53,7 @@ func listPartitions(diskDevice string) {
 		readMBRPartitions(file)
 		return
 	}
-	fmt.Println("GPT disk")
+	fmt.Println("Partition Type : GPT")
 
 	_, err = file.Seek(512, 0)
 	if err != nil {
@@ -89,15 +89,15 @@ func listPartitions(diskDevice string) {
 		}
 	}
 
-	fmt.Printf("Disk: %s\n", diskDevice)
-	fmt.Println("Partitions:")
-	for i, part := range partitions {
+	fmt.Printf("Disk           : %s\n", diskDevice)
+	fmt.Println()
+	for _, part := range partitions {
 		if part.FirstLBA != 0 {
 			partitionName := string(part.PartitionName[:])
 			totalSectors := part.LastLBA - part.FirstLBA + 1
 
 			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
-			fmt.Printf("  %d. TypeGUID: %x, UniqueGUID: %x, FirstLBA: %d, LastLBA: %d, Name: %s, FileSystem: %s, SectorSize: %d bytes, TotalSectors: %d, Total: %d bytes\n", i+1, part.TypeGUID, part.UniqueGUID, part.FirstLBA, part.LastLBA, partitionName, fsType, sectorSize, totalSectors, totalSectors*sectorSize/1024/1024)
+			fmt.Printf("Name           : %s\nTypeGUID       : %x\nUniqueGUID     : %x\nFirstLBA       : %d\nLastLBA        : %d\nFileSystem     : %s\nSectorSize     : %d bytes\nTotalSectors   : %d\nTotal          : %d MB\n\n", partitionName, part.TypeGUID, part.UniqueGUID, part.FirstLBA, part.LastLBA, fsType, sectorSize, totalSectors, totalSectors*sectorSize/1024/1024)
 		}
 	}
 }
