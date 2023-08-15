@@ -26,6 +26,16 @@ type gptPartition struct {
 	PartitionName  [72]byte
 }
 
+type gptPartitionDisplay struct {
+	Partition     gptPartition
+	Name          string
+	Filesystem    string
+	TotalSectors  uint64
+	SectorSize    uint64
+	Total         uint64
+	TypeGUIDStr   string
+	UniqueGUIDStr string
+}
 type mbrPartition struct {
 	Status      uint8
 	_           [3]byte

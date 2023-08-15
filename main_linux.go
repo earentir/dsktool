@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"text/template"
 	"unicode"
 
 	"github.com/dsnet/compress/bzip2"
@@ -89,17 +90,76 @@ func listPartitions(diskDevice string) {
 		}
 	}
 
-	fmt.Printf("Disk           : %s\n", diskDevice)
+	const diskTmpl = "Disk           : {{.}}"
+	const partitionTmpl = `
+Name           : {{.Name}}
+TypeGUID       : {{.TypeGUIDStr}}
+UniqueGUID     : {{.UniqueGUIDStr}}
+FirstLBA       : {{.Partition.FirstLBA}}
+LastLBA        : {{.Partition.LastLBA}}
+TotalSectors   : {{.TotalSectors}}
+FileSystem     : {{.Filesystem}}
+SectorSize     : {{.SectorSize}} bytes
+Total          : {{.Total}} MB
+`
+
+	// Execute Disk Template
+	tmpl, err := template.New("disk").Parse(diskTmpl)
+	if err != nil {
+		log.Fatalf("Error parsing disk template: %v", err)
+	}
+
+	err = tmpl.Execute(os.Stdout, diskDevice)
+	if err != nil {
+		log.Fatalf("Error executing disk template: %v", err)
+	}
 	fmt.Println()
+
+	// Prepare the partitions data for display
+	var displayPartitions []gptPartitionDisplay
 	for _, part := range partitions {
 		if part.FirstLBA != 0 {
-			partitionName := string(part.PartitionName[:])
+			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
 			totalSectors := part.LastLBA - part.FirstLBA + 1
 
-			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
-			fmt.Printf("Name           : %s\nTypeGUID       : %x\nUniqueGUID     : %x\nFirstLBA       : %d\nLastLBA        : %d\nFileSystem     : %s\nSectorSize     : %d bytes\nTotalSectors   : %d\nTotal          : %d MB\n\n", partitionName, part.TypeGUID, part.UniqueGUID, part.FirstLBA, part.LastLBA, fsType, sectorSize, totalSectors, totalSectors*sectorSize/1024/1024)
+			displayPartitions = append(displayPartitions, gptPartitionDisplay{
+				Partition:     part,
+				Name:          string(part.PartitionName[:]),
+				Filesystem:    fsType,
+				TotalSectors:  totalSectors,
+				SectorSize:    sectorSize,
+				Total:         totalSectors * sectorSize / 1024 / 1024,
+				TypeGUIDStr:   fmt.Sprintf("%x", part.TypeGUID),
+				UniqueGUIDStr: fmt.Sprintf("%x", part.UniqueGUID),
+			})
 		}
 	}
+
+	// Execute Partitions Template
+	tmpl, err = template.New("partition").Parse(partitionTmpl)
+	if err != nil {
+		log.Fatalf("Error parsing partition template: %v", err)
+	}
+
+	for _, displayPartition := range displayPartitions {
+		err = tmpl.Execute(os.Stdout, displayPartition)
+		if err != nil {
+			log.Fatalf("Error executing partition template: %v", err)
+		}
+		fmt.Println()
+	}
+
+	// fmt.Printf("Disk           : %s\n", diskDevice)
+	// fmt.Println()
+	// for _, part := range partitions {
+	// 	if part.FirstLBA != 0 {
+	// 		partitionName := string(part.PartitionName[:])
+	// 		totalSectors := part.LastLBA - part.FirstLBA + 1
+
+	// 		fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
+	// 		fmt.Printf("Name           : %s\nTypeGUID       : %x\nUniqueGUID     : %x\nFirstLBA       : %d\nLastLBA        : %d\nFileSystem     : %s\nSectorSize     : %d bytes\nTotalSectors   : %d\nTotal          : %d MB\n\n", partitionName, part.TypeGUID, part.UniqueGUID, part.FirstLBA, part.LastLBA, fsType, sectorSize, totalSectors, totalSectors*sectorSize/1024/1024)
+	// 	}
+	// }
 }
 
 func readMBRPartitions(file *os.File) {
