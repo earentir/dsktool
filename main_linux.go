@@ -36,6 +36,7 @@ func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 }
 
 func listPartitions(diskDevice string) {
+	var diskType string
 	//Start the partition table parsing
 	file, err := os.Open(diskDevice)
 	if err != nil {
@@ -46,7 +47,7 @@ func listPartitions(diskDevice string) {
 	sectorSize = uint64(getSectorSize(file))
 
 	if !isGPTDisk(file) {
-		fmt.Println("Partition Type : MBR")
+		diskType = "MBR"
 		_, err := file.Seek(0, 0)
 		if err != nil {
 			log.Fatalf("Error seeking disk: %v", err)
@@ -54,7 +55,7 @@ func listPartitions(diskDevice string) {
 		readMBRPartitions(file)
 		return
 	}
-	fmt.Println("Partition Type : GPT")
+	diskType = "GPT"
 
 	_, err = file.Seek(512, 0)
 	if err != nil {
@@ -90,31 +91,18 @@ func listPartitions(diskDevice string) {
 		}
 	}
 
-	// const diskTmpl = "Disk           : {{.}}"
 	const partitionTmpl = `
-Name           : {{.Name}}
+Disk           : {{.Disk}} ({{.DiskType}})
 Partition Name : {{.PartitionName}}
+FileSystem     : {{.Filesystem}}
 TypeGUID       : {{.TypeGUIDStr}}
 UniqueGUID     : {{.UniqueGUIDStr}}
+Sector Size    : {{.SectorSize}} bytes
 FirstLBA       : {{.Partition.FirstLBA}}
 LastLBA        : {{.Partition.LastLBA}}
-TotalSectors   : {{.TotalSectors}}
-FileSystem     : {{.Filesystem}}
-SectorSize     : {{.SectorSize}} bytes
-Total          : {{.Total}} MB
+Total Sectors  : {{.TotalSectors}}
+Total Size     : {{.Total}} MB
 `
-
-	// Execute Disk Template
-	// tmpl, err := template.New("disk").Parse(diskTmpl)
-	// if err != nil {
-	// 	log.Fatalf("Error parsing disk template: %v", err)
-	// }
-
-	// err = tmpl.Execute(os.Stdout, diskDevice)
-	// if err != nil {
-	// 	log.Fatalf("Error executing disk template: %v", err)
-	// }
-	// fmt.Println()
 
 	tmpl, err := template.New("disk").Parse(partitionTmpl)
 	if err != nil {
@@ -123,15 +111,18 @@ Total          : {{.Total}} MB
 
 	// Prepare the partitions data for display
 	var displayPartitions []gptPartitionDisplay
-	for i, part := range partitions {
+	var partID int
+	for _, part := range partitions {
 		if part.FirstLBA != 0 {
+			partID++
 			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
 			totalSectors := part.LastLBA - part.FirstLBA + 1
 
 			displayPartitions = append(displayPartitions, gptPartitionDisplay{
 				Disk:          diskDevice,
-				PartitionName: fmt.Sprintf("%s%d", diskDevice, i),
+				DiskType:      diskType,
 				Partition:     part,
+				PartitionName: fmt.Sprintf("%s%d", diskDevice, partID),
 				Name:          string(part.PartitionName[:]),
 				Filesystem:    fsType,
 				TotalSectors:  totalSectors,
@@ -154,20 +145,7 @@ Total          : {{.Total}} MB
 		if err != nil {
 			log.Fatalf("Error executing partition template: %v", err)
 		}
-		fmt.Println()
 	}
-
-	// fmt.Printf("Disk           : %s\n", diskDevice)
-	// fmt.Println()
-	// for _, part := range partitions {
-	// 	if part.FirstLBA != 0 {
-	// 		partitionName := string(part.PartitionName[:])
-	// 		totalSectors := part.LastLBA - part.FirstLBA + 1
-
-	// 		fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
-	// 		fmt.Printf("Name           : %s\nTypeGUID       : %x\nUniqueGUID     : %x\nFirstLBA       : %d\nLastLBA        : %d\nFileSystem     : %s\nSectorSize     : %d bytes\nTotalSectors   : %d\nTotal          : %d MB\n\n", partitionName, part.TypeGUID, part.UniqueGUID, part.FirstLBA, part.LastLBA, fsType, sectorSize, totalSectors, totalSectors*sectorSize/1024/1024)
-	// 	}
-	// }
 }
 
 func readMBRPartitions(file *os.File) {
