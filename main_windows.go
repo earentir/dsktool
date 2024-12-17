@@ -12,18 +12,22 @@ import (
 )
 
 func listPartitions(diskDevice string) {
-
-	driveLetter := "C" // Change this to the desired drive letter
-	diskNumber, err := driveLetterToDiskNumber(driveLetter)
-	if err != nil {
-		fmt.Println("Error converting drive letter to disk number:", err)
+	// Clean up input
+	diskDevice = strings.TrimRight(strings.ToUpper(diskDevice), "\\/:")
+	if len(diskDevice) != 1 || diskDevice[0] < 'A' || diskDevice[0] > 'Z' {
+		fmt.Printf("Invalid drive letter: %s\n", diskDevice)
 		return
 	}
 
-	// diskNumber := uint32(0) //0 = C:, 1 = D:, etc.
+	diskNumber, err := driveLetterToDiskNumber(diskDevice)
+	if err != nil {
+		fmt.Printf("Error getting disk number: %v\n", err)
+		return
+	}
 
+	physicalDrive := fmt.Sprintf("\\\\.\\PhysicalDrive%d", diskNumber)
 	hDisk, err := windows.CreateFile(
-		windows.StringToUTF16Ptr(fmt.Sprintf(`\\.\PhysicalDrive%d`, diskNumber)),
+		windows.StringToUTF16Ptr(physicalDrive),
 		windows.GENERIC_READ,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil,
@@ -32,54 +36,80 @@ func listPartitions(diskDevice string) {
 		0)
 
 	if err != nil {
-		fmt.Println("Error opening disk:", err)
+		if err == windows.ERROR_ACCESS_DENIED {
+			fmt.Println("Access denied. Please run as administrator")
+		} else {
+			fmt.Printf("Error opening disk: %v\n", err)
+		}
 		return
 	}
 	defer windows.CloseHandle(hDisk)
 
 	var diskGeometry DiskGeometryEx
-	err = windows.DeviceIoControl(hDisk, IOCTL_DISK_GET_DRIVE_GEOMETRY_EX, nil, 0, (*byte)(unsafe.Pointer(&diskGeometry)), uint32(unsafe.Sizeof(diskGeometry)), nil, nil)
+	err = windows.DeviceIoControl(
+		hDisk,
+		IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
+		nil,
+		0,
+		(*byte)(unsafe.Pointer(&diskGeometry)),
+		uint32(unsafe.Sizeof(diskGeometry)),
+		nil,
+		nil)
 	if err != nil {
-		fmt.Println("Error getting disk geometry:", err)
+		fmt.Printf("Error getting disk geometry: %v\n", err)
 		return
 	}
 
 	var driveLayout DriveLayoutInformationEx
-	driveLayoutSize := uint32(unsafe.Sizeof(driveLayout) + 128*unsafe.Sizeof(driveLayout.PartitionEntry[0]))
+	driveLayoutSize := uint32(unsafe.Sizeof(driveLayout))
 	buffer := make([]byte, driveLayoutSize)
-	err = windows.DeviceIoControl(hDisk, IOCTL_DISK_GET_DRIVE_LAYOUT_EX, nil, 0, &buffer[0], driveLayoutSize, nil, nil)
+	err = windows.DeviceIoControl(
+		hDisk,
+		IOCTL_DISK_GET_DRIVE_LAYOUT_EX,
+		nil,
+		0,
+		&buffer[0],
+		driveLayoutSize,
+		nil,
+		nil)
 	if err != nil {
-		fmt.Println("Error getting drive layout:", err)
+		fmt.Printf("Error getting drive layout: %v\n", err)
 		return
 	}
 
 	driveLayout = *(*DriveLayoutInformationEx)(unsafe.Pointer(&buffer[0]))
-
 	fmt.Printf("Found %d partitions on disk %d:\n", driveLayout.PartitionCount, diskNumber)
 	for i := uint32(0); i < driveLayout.PartitionCount; i++ {
 		partition := driveLayout.PartitionEntry[i]
-		fmt.Printf("Partition %d: Type: %d, StartingOffset: %d, PartitionLength: %d, HiddenSectors: %d\n", i+1, partition.PartitionStyle, partition.StartingOffset, partition.PartitionLength, partition.HiddenSectors)
+		fmt.Printf("Partition %d: Type: %d, StartingOffset: %d, PartitionLength: %d, HiddenSectors: %d\n",
+			i+1, partition.PartitionStyle, partition.StartingOffset, partition.PartitionLength, partition.HiddenSectors)
 	}
 }
 
 func driveLetterToDiskNumber(driveLetter string) (int, error) {
-	driveLetter = strings.ToUpper(driveLetter)
+	// Clean up the drive letter input
+	driveLetter = strings.TrimRight(strings.ToUpper(driveLetter), "\\/:") // Remove trailing slashes and colon
 	if len(driveLetter) != 1 || driveLetter[0] < 'A' || driveLetter[0] > 'Z' {
-		return -1, fmt.Errorf("Invalid drive letter")
+		return -1, fmt.Errorf("Invalid drive letter: %s", driveLetter)
 	}
 
-	volumeName := fmt.Sprintf("\\\\.\\%s:", driveLetter)
+	// Format the path correctly for Windows API
+	volumePath := fmt.Sprintf("\\\\.\\%s:", driveLetter)
+
 	volumeHandle, err := windows.CreateFile(
-		syscall.StringToUTF16Ptr(volumeName),
-		GENERIC_READ,
-		FILE_SHARE_READ|FILE_SHARE_WRITE,
+		windows.StringToUTF16Ptr(volumePath),
+		windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
 		nil,
-		OPEN_EXISTING,
+		windows.OPEN_EXISTING,
 		0,
 		0)
 
 	if err != nil {
-		return -1, fmt.Errorf("Error opening volume: %s", err)
+		if err == windows.ERROR_ACCESS_DENIED {
+			return -1, fmt.Errorf("Access denied. Please run as administrator")
+		}
+		return -1, fmt.Errorf("Error opening volume: %v", err)
 	}
 	defer windows.CloseHandle(volumeHandle)
 
@@ -95,9 +125,28 @@ func driveLetterToDiskNumber(driveLetter string) (int, error) {
 
 	var extents VolumeDiskExtents
 	var bytesReturned uint32
-	err = windows.DeviceIoControl(volumeHandle, IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS, nil, 0, (*byte)(unsafe.Pointer(&extents)), uint32(unsafe.Sizeof(extents)), &bytesReturned, nil)
+
+	err = windows.DeviceIoControl(
+		volumeHandle,
+		IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+		nil,
+		0,
+		(*byte)(unsafe.Pointer(&extents)),
+		uint32(unsafe.Sizeof(extents)),
+		&bytesReturned,
+		nil)
+
 	if err != nil {
-		return -1, fmt.Errorf("Error getting volume disk extents: %s", err)
+		if err == windows.ERROR_MORE_DATA {
+			// This is normal for volumes spanning multiple disks
+			// For our purposes, we'll just return the first disk
+			return int(extents.Extents[0].DiskNumber), nil
+		}
+		return -1, fmt.Errorf("Error getting volume disk extents: %v", err)
+	}
+
+	if extents.NumberOfDiskExtents == 0 {
+		return -1, fmt.Errorf("No disk extents found for volume %s", driveLetter)
 	}
 
 	return int(extents.Extents[0].DiskNumber), nil
@@ -162,41 +211,66 @@ func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 }
 
 func hasReadPermission(device string) bool {
-	lpFileName, _ := syscall.UTF16PtrFromString(device)
-	var sd *syscall.SECURITY_DESCRIPTOR
+	// Handle default case
+	if device == "." {
+		device = `\\.\PhysicalDrive0`
+	}
 
-	err := syscall.GetFileSecurity(
-		lpFileName,
-		syscall.DACL_SECURITY_INFORMATION,
-		(*byte)(unsafe.Pointer(sd)),
+	h, err := windows.CreateFile(
+		windows.StringToUTF16Ptr(device),
+		windows.GENERIC_READ,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL,
 		0,
-		&syscall.SECURITY_DESCRIPTOR_REVISION)
+	)
+	if err != nil {
+		if err == windows.ERROR_ACCESS_DENIED {
+			fmt.Println("Access denied. Please run with administrator privileges.")
+		}
+		return false
+	}
+	windows.CloseHandle(h)
+	return true
+}
+
+// Function to check if running with admin privileges
+func isAdmin() bool {
+	var sid *windows.SID
+	err := windows.AllocateAndInitializeSid(
+		&windows.SECURITY_NT_AUTHORITY,
+		2,
+		windows.SECURITY_BUILTIN_DOMAIN_RID,
+		windows.DOMAIN_ALIAS_RID_ADMINS,
+		0, 0, 0, 0, 0, 0,
+		&sid)
 	if err != nil {
 		return false
 	}
+	defer windows.FreeSid(sid)
 
-	var genericMapping syscall.GENERIC_MAPPING
-	genericMapping.GenericRead = syscall.FILE_GENERIC_READ
-	genericMapping.GenericWrite = syscall.FILE_GENERIC_WRITE
-	genericMapping.GenericExecute = syscall.FILE_GENERIC_EXECUTE
-	genericMapping.GenericAll = syscall.FILE_ALL_ACCESS
-
-	var privileges syscall.PRIVILEGE_SET
-	var grantedAccess uint32
-	var accessStatus bool
-
-	err = syscall.AccessCheck(
-		(*byte)(unsafe.Pointer(sd)),
-		syscall.Token(nil),
-		syscall.FILE_GENERIC_READ,
-		&genericMapping,
-		&privileges,
-		uint32(unsafe.Sizeof(privileges)),
-		&grantedAccess,
-		&accessStatus)
-	if err != nil || !accessStatus {
+	token := windows.Token(0)
+	err = windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY, &token)
+	if err != nil {
 		return false
 	}
+	defer token.Close()
 
+	// Handle both return values
+	isMember, err := token.IsMember(sid)
+	if err != nil {
+		return false
+	}
+	return isMember
+}
+
+// Helper function to check and report admin status
+func checkAdminStatus() bool {
+	if !isAdmin() {
+		fmt.Println("This program requires administrator privileges.")
+		fmt.Println("Please right-click and select 'Run as administrator'.")
+		return false
+	}
 	return true
 }

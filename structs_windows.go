@@ -1,13 +1,13 @@
 package main
 
+import (
+	"golang.org/x/sys/windows"
+)
+
 const (
-	FILE_SHARE_READ                      = 0x1
-	FILE_SHARE_WRITE                     = 0x2
-	OPEN_EXISTING                        = 0x3
-	GENERIC_READ                         = 0x80000000
-	IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
-	IOCTL_DISK_GET_DRIVE_GEOMETRY_EX     = 0x000700a0
+	IOCTL_DISK_GET_DRIVE_GEOMETRY_EX     = 0x000700A0
 	IOCTL_DISK_GET_DRIVE_LAYOUT_EX       = 0x00070050
+	IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000
 )
 
 type DiskGeometry struct {
