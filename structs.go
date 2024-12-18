@@ -2,7 +2,7 @@ package main
 
 var (
 	sectorSize uint64
-	appversion = "0.4.23"
+	appversion = "0.4.27"
 )
 
 const (

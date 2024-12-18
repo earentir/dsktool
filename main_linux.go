@@ -2,16 +2,19 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/template"
-	"unicode"
+	"unsafe"
 
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/gzip"
@@ -44,6 +47,23 @@ func listPartitions(diskDevice string) {
 	}
 	defer file.Close()
 
+	// Check if the device is a block device, as seeking on a non-block device (like /dev/nvme0) will fail.
+	info, err := file.Stat()
+	if err != nil {
+		log.Fatalf("Error stating disk: %v", err)
+	}
+
+	// On Linux, block devices will appear as devices but not character devices.
+	// Check if it's a character device (e.g., an NVMe controller) or if it's not a device at all.
+	mode := info.Mode()
+	if (mode & os.ModeDevice) == 0 {
+		log.Fatalf("Error: %s is not a device file.", diskDevice)
+	}
+	if (mode & os.ModeCharDevice) != 0 {
+		log.Fatalf("Error: %s is a character device (e.g., NVMe controller), not a block device. Use the block device namespace instead, e.g. /dev/nvme0n1.", diskDevice)
+	}
+
+	// Use the getSectorSize function after verifying the device is block-seekable.
 	sectorSize = uint64(getSectorSize(file))
 
 	if !isGPTDisk(file) {
@@ -186,12 +206,25 @@ func isGPTDisk(file *os.File) bool {
 }
 
 func getSectorSize(file *os.File) int {
-	var sectorSize int
 	sectorSize, err := unix.IoctlGetInt(int(file.Fd()), unix.BLKSSZGET)
-	if err != nil {
-		log.Fatalf("Error getting sector size: %v", err)
+	if err == nil {
+		return sectorSize
 	}
-	return sectorSize
+
+	// If ioctl fails, fallback to reading from sysfs
+	devName := filepath.Base(file.Name()) // e.g. /dev/nvme0 -> nvme0
+	hwSectorSizePath := "/sys/class/block/" + devName + "/queue/hw_sector_size"
+	data, err := os.ReadFile(hwSectorSizePath)
+	if err == nil {
+		szStr := strings.TrimSpace(string(data))
+		sz, convErr := strconv.Atoi(szStr)
+		if convErr == nil && sz > 0 {
+			return sz
+		}
+	}
+
+	// If we cannot get it from sysfs, default to 512 bytes
+	return 512
 }
 
 func detectFileSystem(file *os.File, offset int64) string {
@@ -284,9 +317,9 @@ func detectExtFilesystem(file *os.File, offset int64) string {
 		return "ext4"
 	} else if (compatibleFeatures & 0x4) == 0x4 {
 		return "ext3"
-	} else {
-		return "ext2"
 	}
+
+	return "ext2"
 }
 
 func printFirstNBytes(device string, numOfBytes int, startIndex int64) error {
@@ -344,37 +377,121 @@ func checkWSL() bool {
 }
 
 func listDisks() {
-	devices, err := os.ReadDir("/dev")
+	blockDevices, err := os.ReadDir("/sys/class/block")
 	if err != nil {
-		fmt.Printf("Error reading /dev directory: %v\n", err)
+		fmt.Printf("Error reading /sys/class/block: %v\n", err)
 		return
 	}
 
-	for _, device := range devices {
-		devicePath := "/dev/" + device.Name()
-		if deviceIsRealDisk(devicePath, false) {
-			totalSize, usedSize, freeSize, err := getDiskSpace(devicePath)
-			if err != nil {
-				fmt.Printf("Error getting disk space for %s: %v\n", devicePath, err)
-				continue
-			}
-			fmt.Printf("%s - Total: %d bytes, Used: %d bytes, Free: %d bytes\n", devicePath, totalSize, usedSize, freeSize)
+	for _, bd := range blockDevices {
+		devName := bd.Name()
+
+		// Filter out devices that are known not to be physical disks
+		if strings.HasPrefix(devName, "loop") ||
+			strings.HasPrefix(devName, "zram") ||
+			strings.HasPrefix(devName, "ram") {
+			continue
 		}
+
+		devPath := "/dev/" + devName
+
+		// Get the total size of the block device
+		totalSize, err := getBlockDeviceSize(devPath)
+		if err != nil {
+			fmt.Printf("Error getting size for %s: %v\n", devPath, err)
+			continue
+		}
+
+		// Attempt to find a mount point for this device
+		mountPoint, err := findMountPointForDevice(devPath)
+		if err != nil {
+			// No mount point found
+			fmt.Printf("%s - Total: %d bytes (No filesystem mount found)\n", devPath, totalSize)
+			continue
+		}
+
+		// Get filesystem usage if mounted
+		totalFs, usedFs, freeFs, err := getFsSpace(mountPoint)
+		if err != nil {
+			fmt.Printf("%s - Total: %d bytes, error reading filesystem: %v\n", devPath, totalSize, err)
+			continue
+		}
+
+		fmt.Printf("%s (mounted on %s) - Total: %d bytes, Used: %d bytes, Free: %d bytes\n",
+			devPath, mountPoint, totalFs, usedFs, freeFs)
 	}
 }
 
-func deviceIsRealDisk(device string, showPartitions bool) bool {
-	isSd := strings.HasPrefix(device, "/dev/sd")
-	isHd := strings.HasPrefix(device, "/dev/hd")
-	isNvme := strings.HasPrefix(device, "/dev/nvme")
-
-	// Check if the device name has a number (indicating a partition)
-	if showPartitions {
-		return (isSd || isHd || isNvme)
+// getBlockDeviceSize retrieves the total size of the block device using an ioctl call
+func getBlockDeviceSize(devPath string) (int64, error) {
+	f, err := os.Open(devPath)
+	if err != nil {
+		return 0, err
 	}
-	hasNumber := strings.IndexFunc(device, unicode.IsDigit) != -1
+	defer f.Close()
 
-	return (isSd || isHd || isNvme) && !hasNumber
+	var size int64
+	_, _, e := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), BLKGETSIZE64, uintptr(unsafe.Pointer(&size)))
+	if e != 0 {
+		return 0, fmt.Errorf("ioctl BLKGETSIZE64 failed: %v", e)
+	}
+	return size, nil
+}
+
+// findMountPointForDevice tries to find where the device is mounted by reading /proc/self/mountinfo
+func findMountPointForDevice(devPath string) (string, error) {
+	f, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, " - ")
+		if len(parts) < 2 {
+			continue
+		}
+		beforeDash := parts[0]
+		afterDash := parts[1]
+
+		beforeFields := strings.Split(beforeDash, " ")
+		if len(beforeFields) < 5 {
+			continue
+		}
+
+		mountPoint := beforeFields[4]
+		afterFields := strings.Split(afterDash, " ")
+		if len(afterFields) < 3 {
+			continue
+		}
+		mountedDev := afterFields[1]
+
+		if mountedDev == devPath {
+			return mountPoint, nil
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("no mount found for device %s", devPath)
+}
+
+// getFsSpace returns total, used, and free space for a mounted filesystem
+func getFsSpace(mountPoint string) (total, used, free int64, err error) {
+	var fs syscall.Statfs_t
+	err = syscall.Statfs(mountPoint, &fs)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	total = int64(fs.Blocks) * int64(fs.Bsize)
+	free = int64(fs.Bfree) * int64(fs.Bsize)
+	available := int64(fs.Bavail) * int64(fs.Bsize)
+	used = total - available
+	return total, used, free, nil
 }
 
 func readdisk(device, outputfile, compressionAlgorithm string) {
@@ -469,18 +586,4 @@ func hasReadPermission(device string) bool {
 	}
 	file.Close()
 	return true
-}
-
-func getDiskSpace(devicePath string) (totalSize int64, usedSize int64, freeSize int64, err error) {
-	fs := syscall.Statfs_t{}
-	err = syscall.Statfs(devicePath, &fs)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-
-	totalSize = int64(fs.Blocks) * int64(fs.Bsize)
-	freeSize = int64(fs.Bfree) * int64(fs.Bsize)
-	availableSize := int64(fs.Bavail) * int64(fs.Bsize)
-	usedSize = totalSize - availableSize
-	return totalSize, usedSize, freeSize, nil
 }

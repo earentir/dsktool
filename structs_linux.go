@@ -1,5 +1,7 @@
 package main
 
+const BLKGETSIZE64 = 0x80081272
+
 type gptHeader struct {
 	Signature           [8]byte
 	Revision            [4]byte
