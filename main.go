@@ -66,12 +66,7 @@ func main() {
 		var (
 			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
 			outputfile   = cmd.StringArg("OUTPUTFILE", "sda.gz", "File to write the Image into")
-			gzip         = cmd.BoolOpt("gzip", true, "gzip")
-			bzip         = cmd.BoolOpt("bzip2", false, "bzip2")
-			zstd         = cmd.BoolOpt("zstd", false, "zstd")
-			snappy       = cmd.BoolOpt("snappy", false, "snappy")
-			zlib         = cmd.BoolOpt("zlib", false, "zlib")
-			zip          = cmd.BoolOpt("zip", false, "zip")
+			compress     = cmd.StringOpt("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, zlib, zstd)")
 		)
 
 		cmd.Action = func() {
@@ -81,30 +76,11 @@ func main() {
 				os.Exit(13)
 			}
 
-			compressMethods := map[string]*bool{
-				"gzip":   gzip,
-				"zlib":   zlib,
-				"bzip2":  bzip,
-				"snappy": snappy,
-				"zstd":   zstd,
-				"zip":    zip,
+			if *compress == "" {
+				*compress = "gzip"
 			}
 
-			selectedMethods := make([]string, 0)
-			for method, flag := range compressMethods {
-				if *flag {
-					selectedMethods = append(selectedMethods, method)
-				}
-			}
-
-			if len(selectedMethods) > 1 {
-				fmt.Println("You can only use one compression method")
-				os.Exit(1)
-			}
-
-			if len(selectedMethods) == 1 {
-				readdisk(*deviceToRead, *outputfile, selectedMethods[0])
-			}
+			readdisk(*deviceToRead, *outputfile, *compress)
 		}
 	})
 
