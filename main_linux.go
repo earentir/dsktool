@@ -387,9 +387,19 @@ func listDisks() {
 		devName := bd.Name()
 
 		// Filter out devices that are known not to be physical disks
-		if strings.HasPrefix(devName, "loop") ||
-			strings.HasPrefix(devName, "zram") ||
-			strings.HasPrefix(devName, "ram") {
+		// Define the prefixes to exclude
+		excludePrefixes := []string{"loop", "zram", "ram"}
+
+		// Check if devName starts with any of the excluded prefixes
+		shouldContinue := false
+		for _, prefix := range excludePrefixes {
+			if strings.HasPrefix(devName, prefix) {
+				shouldContinue = true
+				break
+			}
+		}
+
+		if shouldContinue {
 			continue
 		}
 
