@@ -1,6 +1,25 @@
 package main
 
-const BLKGETSIZE64 = 0x80081272
+const (
+	BLKGETSIZE64 = 0x80081272
+
+	red   = "\033[31m"
+	blink = "\033[5m"
+	reset = "\033[0m"
+
+	partitionTmpl = `
+Disk           : {{.Disk}} ({{.DiskType}})
+Partition Name : {{.PartitionName}}
+FileSystem     : {{.Filesystem}}
+TypeGUID       : {{.TypeGUIDStr}}
+UniqueGUID     : {{.UniqueGUIDStr}}
+Sector Size    : {{.SectorSize}} bytes
+FirstLBA       : {{.Partition.FirstLBA}}
+LastLBA        : {{.Partition.LastLBA}}
+Total Sectors  : {{.TotalSectors}}
+Total Size     : {{.Total}}
+`
+)
 
 type gptHeader struct {
 	Signature           [8]byte
@@ -37,7 +56,7 @@ type gptPartitionDisplay struct {
 	Filesystem    string
 	TotalSectors  uint64
 	SectorSize    uint64
-	Total         uint64
+	Total         string
 	TypeGUIDStr   string
 	UniqueGUIDStr string
 }

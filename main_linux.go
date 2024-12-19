@@ -25,12 +25,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const (
-	red   = "\033[31m"
-	blink = "\033[5m"
-	reset = "\033[0m"
-)
-
 func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 	err := printFirstNBytes(diskDevice, numOfBytes, startIndex)
 	if err != nil {
@@ -111,19 +105,6 @@ func listPartitions(diskDevice string) {
 		}
 	}
 
-	const partitionTmpl = `
-Disk           : {{.Disk}} ({{.DiskType}})
-Partition Name : {{.PartitionName}}
-FileSystem     : {{.Filesystem}}
-TypeGUID       : {{.TypeGUIDStr}}
-UniqueGUID     : {{.UniqueGUIDStr}}
-Sector Size    : {{.SectorSize}} bytes
-FirstLBA       : {{.Partition.FirstLBA}}
-LastLBA        : {{.Partition.LastLBA}}
-Total Sectors  : {{.TotalSectors}}
-Total Size     : {{.Total}} MB
-`
-
 	tmpl, err := template.New("disk").Parse(partitionTmpl)
 	if err != nil {
 		log.Fatalf("Error parsing disk template: %v", err)
@@ -147,7 +128,7 @@ Total Size     : {{.Total}} MB
 				Filesystem:    fsType,
 				TotalSectors:  totalSectors,
 				SectorSize:    sectorSize,
-				Total:         totalSectors * sectorSize / 1024 / 1024,
+				Total:         formatBytes(totalSectors * sectorSize),
 				TypeGUIDStr:   fmt.Sprintf("%x", part.TypeGUID),
 				UniqueGUIDStr: fmt.Sprintf("%x", part.UniqueGUID),
 			})
@@ -416,7 +397,7 @@ func listDisks() {
 		mountPoint, err := findMountPointForDevice(devPath)
 		if err != nil {
 			// No mount point found
-			fmt.Printf("%s - Total: %d bytes (No filesystem mount found)\n", devPath, totalSize)
+			fmt.Printf("%s - Total: %s (No filesystem mount found)\n", devPath, formatBytes(totalSize))
 			continue
 		}
 
@@ -427,8 +408,8 @@ func listDisks() {
 			continue
 		}
 
-		fmt.Printf("%s (mounted on %s) - Total: %d bytes, Used: %d bytes, Free: %d bytes\n",
-			devPath, mountPoint, totalFs, usedFs, freeFs)
+		fmt.Printf("%s (mounted on %s) - Total: %s, Used: %s, Free: %s\n",
+			devPath, mountPoint, formatBytes(totalFs), formatBytes(usedFs), formatBytes(freeFs))
 	}
 }
 
