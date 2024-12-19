@@ -14,10 +14,13 @@ import (
 	"strings"
 	"syscall"
 	"text/template"
+	"time"
 	"unsafe"
 
 	"github.com/dsnet/compress/bzip2"
+	"github.com/gosuri/uilive"
 	"github.com/klauspost/compress/gzip"
+	"github.com/klauspost/compress/s2"
 	"github.com/klauspost/compress/snappy"
 	"github.com/klauspost/compress/zlib"
 	"github.com/klauspost/compress/zstd"
@@ -485,90 +488,6 @@ func getFsSpace(mountPoint string) (total, used, free int64, err error) {
 	return total, used, free, nil
 }
 
-func readdisk(device, outputfile, compressionAlgorithm string) {
-	// Open the disk device file
-	disk, err := os.Open(device)
-	if err != nil {
-		fmt.Println("Failed to open Device: ", device)
-		return
-	}
-	defer disk.Close()
-
-	// Create a new file to write the data to
-	output, err := os.Create(outputfile)
-	if err != nil {
-		fmt.Println("Failed to create output file: ", outputfile)
-		return
-	}
-	defer output.Close()
-
-	var compressedWriter io.Writer
-	var zipWriter *zip.Writer
-
-	switch compressionAlgorithm {
-	case "gzip":
-		compressedWriter = gzip.NewWriter(output)
-	case "zlib":
-		compressedWriter = zlib.NewWriter(output)
-	case "bzip2":
-		compressedWriter, err = bzip2.NewWriter(output, &bzip2.WriterConfig{})
-	case "snappy":
-		compressedWriter = snappy.NewBufferedWriter(output)
-	case "zstd":
-		compressedWriter, err = zstd.NewWriter(output)
-	case "zip":
-		zipWriter = zip.NewWriter(output)
-		zipFile, err := zipWriter.Create("compressedData")
-		if err != nil {
-			fmt.Println("Failed to create zip entry:", err.Error())
-			return
-		}
-		compressedWriter = zipFile
-	default:
-		fmt.Println("Unsupported compression algorithm:", compressionAlgorithm)
-		return
-	}
-
-	if err != nil {
-		fmt.Println("Failed to create compression writer: ", err.Error())
-		return
-	}
-
-	fmt.Println("Writing to Image", outputfile)
-	fmt.Println("Printing a # every 10MB")
-	var count int
-	var byteCount = 16384
-	// Use a buffer to read the data from the disk and write it to the file
-	buf := make([]byte, byteCount)
-	for {
-		n, err := disk.Read(buf)
-		if err != nil {
-			break
-		}
-
-		_, err = compressedWriter.Write(buf[:n])
-		if err != nil {
-			fmt.Println("Failed to create compressed stream, ", err.Error())
-		}
-		count++
-		output := count * byteCount
-		if output%10485760 == 0 {
-			fmt.Print("#")
-		}
-	}
-	fmt.Println()
-	fmt.Println("Written:", count*byteCount, "(", count, " Packets each ", byteCount, " bytes long )")
-
-	if zipWriter != nil {
-		err := zipWriter.Close()
-		if err != nil {
-			fmt.Println("Failed to close zip writer:", err.Error())
-		}
-	} else {
-		compressedWriter.(io.WriteCloser).Close()
-	}
-}
-
 func hasReadPermission(device string) bool {
 	checkWSL()
 	file, err := os.OpenFile(device, os.O_RDONLY, 0)
@@ -577,4 +496,239 @@ func hasReadPermission(device string) bool {
 	}
 	file.Close()
 	return true
+}
+
+type countingWriter struct {
+	w     io.Writer
+	count int64
+}
+
+func (cw *countingWriter) Write(p []byte) (int, error) {
+	n, err := cw.w.Write(p)
+	cw.count += int64(n)
+	return n, err
+}
+
+func readdisk(device, outputfile, compressionAlgorithm string) {
+	// Open the disk device file
+	disk, err := os.Open(device)
+	if err != nil {
+		fmt.Println("Failed to open Device:", device)
+		return
+	}
+	defer disk.Close()
+
+	// Determine file extension based on compression algorithm
+	var extension string
+	switch compressionAlgorithm {
+	case "gzip":
+		extension = ".gz"
+	case "zlib":
+		extension = ".zlib"
+	case "bzip2":
+		extension = ".bz2"
+	case "snappy":
+		extension = ".snappy"
+	case "s2":
+		extension = ".s2"
+	case "zstd":
+		extension = ".zst"
+	case "zip":
+		extension = ".zip"
+	default:
+		fmt.Println("Unsupported compression algorithm:", compressionAlgorithm)
+		return
+	}
+
+	outputfile = outputfile + extension
+
+	// Create a new file to write the data to
+	output, err := os.Create(outputfile)
+	if err != nil {
+		fmt.Println("Failed to create output file:", outputfile)
+		return
+	}
+	defer output.Close()
+
+	// Wrap output with a countingWriter
+	cw := &countingWriter{w: output}
+
+	var compressedWriter io.Writer
+	var zipWriter *zip.Writer
+
+	// Create the compression writer based on the chosen algorithm
+	switch compressionAlgorithm {
+	case "gzip":
+		compressedWriter = gzip.NewWriter(cw)
+	case "zlib":
+		compressedWriter = zlib.NewWriter(cw)
+	case "bzip2":
+		compressedWriter, err = bzip2.NewWriter(cw, &bzip2.WriterConfig{})
+		if err != nil {
+			fmt.Println("Failed to create bzip2 writer:", err)
+			return
+		}
+	case "snappy":
+		compressedWriter = snappy.NewBufferedWriter(cw)
+	case "s2":
+		compressedWriter = s2.NewWriter(cw)
+	case "zstd":
+		compressedWriter, err = zstd.NewWriter(cw)
+		if err != nil {
+			fmt.Println("Failed to create zstd writer:", err)
+			return
+		}
+	case "zip":
+		zipWriter = zip.NewWriter(cw)
+		zipFile, err := zipWriter.Create("compressedData")
+		if err != nil {
+			fmt.Println("Failed to create zip entry:", err.Error())
+			return
+		}
+		compressedWriter = zipFile
+	}
+
+	if err != nil {
+		fmt.Println("Failed to create compression writer:", err.Error())
+		return
+	}
+
+	fmt.Printf("Writing to Image: %s\n", outputfile)
+
+	// Attempt to get total size for estimation
+	var totalSize int64
+	if stat, err := os.Stat(device); err == nil {
+		totalSize = stat.Size()
+	}
+
+	start := time.Now()
+
+	// Setup uilive for dynamic output
+	writer := uilive.New()
+	writer.Start() // start the live writer
+
+	var (
+		bytesRead  int64
+		count      int
+		byteCount  = 16384
+		buf        = make([]byte, byteCount)
+		lastUpdate = time.Now()
+	)
+
+	for {
+		n, err := disk.Read(buf)
+		if n > 0 {
+			_, wErr := compressedWriter.Write(buf[:n])
+			if wErr != nil {
+				fmt.Fprintln(writer.Bypass(), "Failed to write compressed stream:", wErr.Error())
+				writer.Stop()
+				return
+			}
+
+			bytesRead += int64(n)
+			count++
+
+			// Update once every second
+			if time.Since(lastUpdate) >= time.Second {
+				elapsed := time.Since(start).Truncate(time.Second)
+				var estimateStr string
+				if totalSize > 0 && bytesRead > 0 {
+					rate := float64(bytesRead) / time.Since(start).Seconds()
+					remaining := float64(totalSize-bytesRead) / rate
+					if remaining < 0 {
+						remaining = 0
+					}
+					estimateStr = fmt.Sprintf("%.0fs", remaining)
+				} else {
+					estimateStr = "N/A"
+				}
+
+				readMBps := (float64(bytesRead) / (1024.0 * 1024.0)) / time.Since(start).Seconds()
+				writeMBps := (float64(cw.count) / (1024.0 * 1024.0)) / time.Since(start).Seconds()
+
+				fmt.Fprintf(writer,
+					"Byte Count: Read: %s (%d bytes), Written: %s (%d bytes)\n",
+					formatBytes(bytesRead), bytesRead,
+					formatBytes(cw.count), cw.count)
+				fmt.Fprintf(writer, "Elapsed Time: %s\n", elapsed)
+				fmt.Fprintf(writer, "Estimated Time: %s\n", estimateStr)
+				fmt.Fprintf(writer, "Read Speed: %.2f MB/s\n", readMBps)
+				fmt.Fprintf(writer, "Write Speed: %.2f MB/s\n", writeMBps)
+
+				writer.Flush()
+				lastUpdate = time.Now()
+			}
+		}
+
+		if err != nil {
+			if err == io.EOF {
+				// Final update at the end
+				elapsed := time.Since(start).Truncate(time.Second)
+				var estimateStr string
+				if totalSize > 0 && bytesRead > 0 {
+					rate := float64(bytesRead) / time.Since(start).Seconds()
+					remaining := float64(totalSize-bytesRead) / rate
+					if remaining < 0 {
+						remaining = 0
+					}
+					estimateStr = fmt.Sprintf("%.0fs", remaining)
+				} else {
+					estimateStr = "N/A"
+				}
+
+				readMBps := (float64(bytesRead) / (1024.0 * 1024.0)) / time.Since(start).Seconds()
+				writeMBps := (float64(cw.count) / (1024.0 * 1024.0)) / time.Since(start).Seconds()
+
+				fmt.Fprintf(writer,
+					"Byte Count: Read: %s (%d bytes), Written: %s (%d bytes)\n",
+					formatBytes(bytesRead), bytesRead,
+					formatBytes(cw.count), cw.count)
+				fmt.Fprintf(writer, "Elapsed Time: %s\n", elapsed)
+				fmt.Fprintf(writer, "Estimated Time: %s\n", estimateStr)
+				fmt.Fprintf(writer, "Read Speed: %.2f MB/s\n", readMBps)
+				fmt.Fprintf(writer, "Write Speed: %.2f MB/s\n", writeMBps)
+				writer.Flush()
+				break
+			} else {
+				fmt.Fprintln(writer.Bypass(), "Error reading from disk:", err.Error())
+				writer.Stop()
+				return
+			}
+		}
+	}
+
+	writer.Stop() // stop the live writer
+
+	totalBytes := bytesRead
+	fmt.Println() // new line after finishing updates
+	fmt.Println("Written:", formatBytes(totalBytes), "(", totalBytes, "bytes )")
+
+	// Close zipWriter if we have one
+	if zipWriter != nil {
+		err := zipWriter.Close()
+		if err != nil {
+			fmt.Println("Failed to close zip writer:", err.Error())
+		}
+	} else {
+		// If the compression writer implements Close, call it
+		if wc, ok := compressedWriter.(io.WriteCloser); ok {
+			wc.Close()
+		}
+	}
+
+	finalElapsed := time.Since(start).Truncate(time.Second)
+	finalReadMBps := (float64(bytesRead) / (1024.0 * 1024.0)) / time.Since(start).Seconds()
+	finalWriteMBps := (float64(cw.count) / (1024.0 * 1024.0)) / time.Since(start).Seconds()
+
+	// Calculate compression ratio: original_size / compressed_size
+	var compressionRatio string
+	if cw.count > 0 {
+		ratio := float64(totalBytes) / float64(cw.count)
+		compressionRatio = fmt.Sprintf("%.2f:1", ratio)
+	} else {
+		compressionRatio = "N/A"
+	}
+
+	fmt.Printf("Total actual time: %s (%.2f MB/s read, %.2f MB/s write) Compression ratio: %s\n",
+		finalElapsed, finalReadMBps, finalWriteMBps, compressionRatio)
 }

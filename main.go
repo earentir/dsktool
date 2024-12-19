@@ -61,12 +61,12 @@ func main() {
 	})
 
 	app.Command("i image", "Image A Disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "DEVICE OUTPUTFILE [--gzip | --bzip2 | --zip | --snappy | --zlib | --zstd]"
+		cmd.Spec = "DEVICE OUTPUTFILE [--compress]"
 
 		var (
 			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
-			outputfile   = cmd.StringArg("OUTPUTFILE", "sda.gz", "File to write the Image into")
-			compress     = cmd.StringOpt("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, zlib, zstd)")
+			outputfile   = cmd.StringArg("OUTPUTFILE", "diskimage", "File to write the Image into")
+			compress     = cmd.StringOpt("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, s2, zlib, zstd)")
 		)
 
 		cmd.Action = func() {
