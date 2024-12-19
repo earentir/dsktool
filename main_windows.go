@@ -168,9 +168,11 @@ func listDisks() {
 }
 
 func readdisk(device, outputfile, compressionAlgorithm string) {
+	devicename, err := syscall.UTF16PtrFromString(fmt.Sprintf("\\\\.\\%s", device))
+
 	// Open the disk device file using the syscall package
 	disk, err := syscall.CreateFile(
-		syscall.StringToUTF16Ptr("\\\\.\\F:"), // Replace "F:" with the drive letter of the disk
+		devicename,
 		syscall.GENERIC_READ,
 		syscall.FILE_SHARE_READ,
 		nil,
