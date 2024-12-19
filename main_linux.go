@@ -169,7 +169,7 @@ func readMBRPartitions(file *os.File) {
 	for i, part := range mbr.Partitions {
 		if part.Sectors != 0 {
 			fsType := detectFileSystem(file, int64(part.FirstSector*uint32(sectorSize)))
-			fmt.Printf("  %d. Type: 0x%02x, FirstSector: %d, Sectors: %d, FileSystem: %s, SectorSize: %d bytes, Total: %d bytes\n", i+1, part.Type, part.FirstSector, part.Sectors, fsType, sectorSize, part.Sectors*uint32(sectorSize)/1024/1024)
+			fmt.Printf("  %d. Type: 0x%02x, FirstSector: %d, Sectors: %d, FileSystem: %s, SectorSize: %d bytes, Total: %s\n", i+1, part.Type, part.FirstSector, part.Sectors, fsType, sectorSize, formatBytes(part.Sectors*uint32(sectorSize)))
 		}
 	}
 }
