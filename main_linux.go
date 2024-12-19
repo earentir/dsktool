@@ -258,6 +258,18 @@ func detectFileSystem(file *os.File, offset int64) string {
 		{Name: "VFAT", Signature: []byte{0x55, 0xaa}, Offset: 0x1fe},
 		{Name: "XFS", Signature: []byte("XFSB"), Offset: 0},
 		{Name: "ZFS", Signature: []byte{0x00, 0x4D, 0x5A, 0x93, 0x13, 0x41, 0x4A, 0x16}, Offset: 0},
+		//New Filesystems
+		{Name: "Microsoft Basic Data", Signature: []byte{0xEB, 0x52, 0x90}, Offset: 0}, // Boot sector signature
+		{Name: "AFS", Signature: []byte("AFS"), Offset: 0x100},
+		{Name: "Apple UFS", Signature: []byte{0x19, 0x57, 0x01, 0x00}, Offset: 0x8000},
+		{Name: "EROFS", Signature: []byte("E0F5"), Offset: 0x400}, // Enhanced Read-Only File System
+		{Name: "FUSE GRPC", Signature: []byte("GRPC"), Offset: 0},
+		{Name: "GFS/GFS2", Signature: []byte("GFSL"), Offset: 0x400},
+		{Name: "UBIFS", Signature: []byte{0x31, 0x18, 0x10, 0x06}, Offset: 0},
+		{Name: "YAFFS2", Signature: []byte("YFSS"), Offset: 0},
+		{Name: "NOVA", Signature: []byte("NOVA"), Offset: 0x200},
+		{Name: "JFFS2", Signature: []byte{0x85, 0x19}, Offset: 0},
+		{Name: "LogFS", Signature: []byte("LOGFS"), Offset: 0},
 	}
 
 	buffer := make([]byte, 512)
