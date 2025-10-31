@@ -4,88 +4,122 @@ import (
 	"fmt"
 	"os"
 
-	cli "github.com/jawher/mow.cli"
+	"github.com/spf13/cobra"
 )
 
-// Windows is not tested at all, please be ware
+var (
+	rootCmd = &cobra.Command{
+		Use:     "dsktool",
+		Short:   "Earentir Disk Tools",
+		Long:    "Earentir Disk Tools - A comprehensive disk management utility",
+		Version: appversion,
+	}
+)
+
 func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
 
-	app := cli.App("dsktool", "Earentir Disk Tools")
-	app.Version("v version", appversion)
-
-	app.Command("d disk disks", "List Disks", func(cmd *cli.Cmd) {
-		cmd.Action = func() {
+func init() {
+	// List disks command
+	var listDisksCmd = &cobra.Command{
+		Use:     "disks",
+		Aliases: []string{"d", "disk"},
+		Short:   "List Disks",
+		Long:    "List all available disks on the system",
+		Run: func(cmd *cobra.Command, args []string) {
 			listDisks()
-		}
-	})
+		},
+	}
 
-	app.Command("p part partitions", "List Partitions", func(cmd *cli.Cmd) {
-		cmd.Spec = "DEVICE"
-		deviceToRead := cmd.StringArg("DEVICE", "", "Disk To Use")
+	// List partitions command
+	var listPartitionsCmd = &cobra.Command{
+		Use:     "partitions",
+		Aliases: []string{"p", "part"},
+		Short:   "List Partitions",
+		Long:    "List partitions on a specified disk device",
+		Args:    cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			deviceToRead := args[0]
+			checkForPerms(deviceToRead)
+			listPartitions(deviceToRead)
+		},
+	}
 
-		cmd.Action = func() {
-			checkForPerms(*deviceToRead)
-			listPartitions(*deviceToRead)
-		}
-	})
+	// List bytes command
+	var listBytesCmd = &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"l"},
+		Short:   "List bytes from disk",
+		Long:    "Read and display bytes from a disk device",
+		Args:    cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			deviceToRead := args[0]
+			checkForPerms(deviceToRead)
+			bytes, _ := cmd.Flags().GetInt("bytes")
+			offset, _ := cmd.Flags().GetInt("offset")
+			// This is not good, we cant use an offset larger than 2^32
+			printDiskBytes(deviceToRead, bytes, int64(offset))
+		},
+	}
+	listBytesCmd.Flags().Int("bytes", 512, "Number of bytes to read")
+	listBytesCmd.Flags().Int("offset", 0, "Offset to start reading from")
 
-	app.Command("l list", "List bytes from disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "DEVICE [--bytes] [--offset]"
+	// Benchmark command
+	var benchmarkCmd = &cobra.Command{
+		Use:     "benchmark",
+		Aliases: []string{"b", "bench"},
+		Short:   "Benchmark Disk",
+		Long:    "Run disk benchmark tests",
+		Run: func(cmd *cobra.Command, args []string) {
+			size, _ := cmd.Flags().GetInt("size")
+			dir, _ := cmd.Flags().GetString("dir")
+			iterations, _ := cmd.Flags().GetInt("iterations")
+			checkForPerms(dir)
+			benchFullTest(size, iterations, dir)
+		},
+	}
+	benchmarkCmd.Flags().Int("size", 1024, "Size of the file to write in MB")
+	benchmarkCmd.Flags().String("dir", ".", "Directory to write the file to")
+	benchmarkCmd.Flags().Int("iterations", 5, "Number of iterations to run")
 
-		var (
-			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
-			bytes        = cmd.IntOpt("bytes", 512, "Number of bytes to read")
-			offset       = cmd.IntOpt("offset", 0, "Offset to start reading from")
-		)
+	// Image command
+	var imageCmd = &cobra.Command{
+		Use:     "image",
+		Aliases: []string{"i"},
+		Short:   "Image A Disk",
+		Long:    "Create a disk image from a device",
+		Args:    cobra.RangeArgs(1, 2),
+		Run: func(cmd *cobra.Command, args []string) {
+			deviceToRead := args[0]
+			outputfile := "diskimage"
+			if len(args) > 1 {
+				outputfile = args[1]
+			}
 
-		cmd.Action = func() {
-			checkForPerms(*deviceToRead)
-			//This is not good, we cant use an offset larger than 2^32
-			printDiskBytes(*deviceToRead, *bytes, int64(*offset))
-		}
-	})
-
-	app.Command("b bench benchmaks", "Benchmark Disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "[--size] [--dir] [--iterations]"
-
-		var (
-			size       = cmd.IntOpt("size", 1024, "Size of the file to write in MB")
-			dir        = cmd.StringOpt("dir", ".", "Directory to write the file to")
-			iterations = cmd.IntOpt("iterations", 5, "Number of iterations to run")
-		)
-
-		cmd.Action = func() {
-			checkForPerms(*dir)
-			benchFullTest(*size, *iterations, *dir)
-		}
-	})
-
-	app.Command("i image", "Image A Disk", func(cmd *cli.Cmd) {
-		cmd.Spec = "DEVICE OUTPUTFILE [--compress]"
-
-		var (
-			deviceToRead = cmd.StringArg("DEVICE", "", "Disk To Use")
-			outputfile   = cmd.StringArg("OUTPUTFILE", "diskimage", "File to write the Image into")
-			compress     = cmd.StringOpt("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, s2, zlib, zstd)")
-		)
-
-		cmd.Action = func() {
-			//Exit if we don't have permission to read the device
-			if !hasReadPermission(*deviceToRead) {
-				fmt.Printf("No permission to read the device: %s, try with elevated priviledges\n", *deviceToRead)
+			// Exit if we don't have permission to read the device
+			if !hasReadPermission(deviceToRead) {
+				fmt.Printf("No permission to read the device: %s, try with elevated priviledges\n", deviceToRead)
 				os.Exit(13)
 			}
 
-			if *compress == "" {
-				*compress = "gzip"
+			compress, _ := cmd.Flags().GetString("compress")
+			if compress == "" {
+				compress = "gzip"
 			}
 
-			readdisk(*deviceToRead, *outputfile, *compress)
-		}
-	})
-
-	err := app.Run(os.Args)
-	if err != nil {
-		fmt.Println(err.Error())
+			readdisk(deviceToRead, outputfile, compress)
+		},
 	}
+	imageCmd.Flags().String("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, s2, zlib, zstd)")
+
+	// Add all commands to root
+	rootCmd.AddCommand(listDisksCmd)
+	rootCmd.AddCommand(listPartitionsCmd)
+	rootCmd.AddCommand(listBytesCmd)
+	rootCmd.AddCommand(benchmarkCmd)
+	rootCmd.AddCommand(imageCmd)
 }
