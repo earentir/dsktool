@@ -49,3 +49,29 @@ func formatBytes[T dataSizeNumber](bytes T) string {
 	}
 	return fmt.Sprintf("%.1f %s", value, unit)
 }
+
+// formatSpeed formats a speed value (bytes per second) into human-readable format
+// Uses KB/s for values < 1 MB/s, MB/s for larger values, with whole numbers when possible
+func formatSpeed(bytesPerSecond float64) string {
+	if bytesPerSecond <= 0 {
+		return "0 KB/s"
+	}
+
+	// Convert to KB/s
+	kbPerSecond := bytesPerSecond / 1024.0
+
+	// If less than 1 MB/s (1024 KB/s), use KB/s
+	if kbPerSecond < 1024.0 {
+		if kbPerSecond == math.Trunc(kbPerSecond) {
+			return fmt.Sprintf("%.0f KB/s", kbPerSecond)
+		}
+		return fmt.Sprintf("%.1f KB/s", kbPerSecond)
+	}
+
+	// Otherwise use MB/s
+	mbPerSecond := bytesPerSecond / (1024.0 * 1024.0)
+	if mbPerSecond == math.Trunc(mbPerSecond) {
+		return fmt.Sprintf("%.0f MB/s", mbPerSecond)
+	}
+	return fmt.Sprintf("%.1f MB/s", mbPerSecond)
+}
