@@ -1,9 +1,8 @@
 package main
 
 import (
-	"compress/gzip"
 	"fmt"
-	"os"
+	"io"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -167,11 +166,35 @@ func listDisks() {
 	}
 }
 
+// windowsHandleReader wraps a Windows handle to implement io.Reader
+type windowsHandleReader struct {
+	handle syscall.Handle
+}
+
+func (r *windowsHandleReader) Read(p []byte) (int, error) {
+	var n uint32
+	err := syscall.ReadFile(r.handle, p, &n, nil)
+	if err != nil {
+		if err == syscall.ERROR_HANDLE_EOF || err == syscall.ERROR_BROKEN_PIPE {
+			return int(n), io.EOF
+		}
+		return int(n), err
+	}
+	if n == 0 {
+		return 0, io.EOF
+	}
+	return int(n), nil
+}
+
 func readdisk(device, outputfile, compressionAlgorithm string) {
 	devicename, err := syscall.UTF16PtrFromString(fmt.Sprintf("\\\\.\\%s", device))
+	if err != nil {
+		fmt.Printf("Failed to convert device name: %v\n", err)
+		return
+	}
 
 	// Open the disk device file using the syscall package
-	disk, err := syscall.CreateFile(
+	diskHandle, err := syscall.CreateFile(
 		devicename,
 		syscall.GENERIC_READ,
 		syscall.FILE_SHARE_READ,
@@ -181,30 +204,23 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 		0,
 	)
 	if err != nil {
-		// Handle error
+		fmt.Printf("Failed to open device: %v\n", err)
+		return
 	}
-	defer syscall.CloseHandle(disk)
+	defer syscall.CloseHandle(diskHandle)
 
-	// Create a new file to write the data to
-	output, err := os.Create(outputfile)
+	// Wrap the handle as an io.Reader
+	disk := &windowsHandleReader{handle: diskHandle}
+
+	// Attempt to get total size for estimation (Windows doesn't provide an easy way)
+	// We'll pass 0 and the compression function will handle it gracefully
+	var totalSize int64 = 0
+
+	// Use the common compression function
+	err = compressFromReader(disk, outputfile, compressionAlgorithm, totalSize)
 	if err != nil {
-		// Handle error
-	}
-	defer output.Close()
-
-	// Create a gzip writer
-	gzipWriter := gzip.NewWriter(output)
-	defer gzipWriter.Close()
-
-	// Use a buffer to read the data from the disk and write it to the file
-	buf := make([]byte, 1024)
-	for {
-		var n uint32
-		err := syscall.ReadFile(disk, buf, &n, nil)
-		if err != nil {
-			break
-		}
-		gzipWriter.Write(buf[:n])
+		fmt.Printf("Error during compression: %v\n", err)
+		return
 	}
 }
 

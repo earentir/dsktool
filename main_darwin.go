@@ -3,7 +3,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bufio"
 	"encoding/binary"
 	"fmt"
@@ -15,16 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"text/template"
-	"time"
 	"unsafe"
 
-	"github.com/dsnet/compress/bzip2"
-	"github.com/gosuri/uilive"
-	"github.com/klauspost/compress/gzip"
-	"github.com/klauspost/compress/s2"
-	"github.com/klauspost/compress/snappy"
-	"github.com/klauspost/compress/zlib"
-	"github.com/klauspost/compress/zstd"
 	"golang.org/x/sys/unix"
 )
 
@@ -550,17 +541,6 @@ func hasReadPermission(device string) bool {
 	return true
 }
 
-type countingWriter struct {
-	w     io.Writer
-	count int64
-}
-
-func (cw *countingWriter) Write(p []byte) (int, error) {
-	n, err := cw.w.Write(p)
-	cw.count += int64(n)
-	return n, err
-}
-
 func readdisk(device, outputfile, compressionAlgorithm string) {
 	// Open the disk device file
 	disk, err := os.Open(device)
@@ -569,83 +549,6 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 		return
 	}
 	defer disk.Close()
-
-	// Determine file extension based on compression algorithm
-	var extension string
-	switch compressionAlgorithm {
-	case "gzip":
-		extension = ".gz"
-	case "zlib":
-		extension = ".zlib"
-	case "bzip2":
-		extension = ".bz2"
-	case "snappy":
-		extension = ".snappy"
-	case "s2":
-		extension = ".s2"
-	case "zstd":
-		extension = ".zst"
-	case "zip":
-		extension = ".zip"
-	default:
-		fmt.Println("Unsupported compression algorithm:", compressionAlgorithm)
-		return
-	}
-
-	outputfile = outputfile + extension
-
-	// Create a new file to write the data to
-	output, err := os.Create(outputfile)
-	if err != nil {
-		fmt.Println("Failed to create output file:", outputfile)
-		return
-	}
-	defer output.Close()
-
-	// Wrap output with a countingWriter
-	cw := &countingWriter{w: output}
-
-	var compressedWriter io.Writer
-	var zipWriter *zip.Writer
-
-	// Create the compression writer based on the chosen algorithm
-	switch compressionAlgorithm {
-	case "gzip":
-		compressedWriter = gzip.NewWriter(cw)
-	case "zlib":
-		compressedWriter = zlib.NewWriter(cw)
-	case "bzip2":
-		compressedWriter, err = bzip2.NewWriter(cw, &bzip2.WriterConfig{})
-		if err != nil {
-			fmt.Println("Failed to create bzip2 writer:", err)
-			return
-		}
-	case "snappy":
-		compressedWriter = snappy.NewBufferedWriter(cw)
-	case "s2":
-		compressedWriter = s2.NewWriter(cw)
-	case "zstd":
-		compressedWriter, err = zstd.NewWriter(cw)
-		if err != nil {
-			fmt.Println("Failed to create zstd writer:", err)
-			return
-		}
-	case "zip":
-		zipWriter = zip.NewWriter(cw)
-		zipFile, err := zipWriter.Create("compressedData")
-		if err != nil {
-			fmt.Println("Failed to create zip entry:", err.Error())
-			return
-		}
-		compressedWriter = zipFile
-	}
-
-	if err != nil {
-		fmt.Println("Failed to create compression writer:", err.Error())
-		return
-	}
-
-	fmt.Printf("Writing to Image: %s\n", outputfile)
 
 	// Attempt to get total size for estimation
 	var totalSize int64
@@ -685,167 +588,10 @@ func readdisk(device, outputfile, compressionAlgorithm string) {
 		fmt.Printf("Warning: Could not determine device size. Estimated time will be unavailable.\n")
 	}
 
-	start := time.Now()
-
-	// Setup uilive for dynamic output
-	writer := uilive.New()
-	writer.Start() // start the live writer
-
-	var (
-		bytesRead  int64
-		count      int
-		byteCount  = 16384
-		buf        = make([]byte, byteCount)
-		lastUpdate = time.Now()
-	)
-
-	for {
-		n, err := disk.Read(buf)
-		if n > 0 {
-			_, wErr := compressedWriter.Write(buf[:n])
-			if wErr != nil {
-				fmt.Fprintln(writer.Bypass(), "Failed to write compressed stream:", wErr.Error())
-				writer.Stop()
-				return
-			}
-
-			bytesRead += int64(n)
-			count++
-
-			// Update once every second
-			if time.Since(lastUpdate) >= time.Second {
-				elapsed := time.Since(start).Truncate(time.Second)
-				var estimateStr string
-				if totalSize > 0 && bytesRead > 0 {
-					elapsedSeconds := time.Since(start).Seconds()
-					if elapsedSeconds > 0 {
-						rate := float64(bytesRead) / elapsedSeconds
-						remaining := float64(totalSize-bytesRead) / rate
-						if remaining < 0 {
-							remaining = 0
-						}
-						// Format as human-readable time (e.g., "1m30s" or "45s")
-						if remaining < 60 {
-							estimateStr = fmt.Sprintf("%.0fs", remaining)
-						} else if remaining < 3600 {
-							estimateStr = fmt.Sprintf("%.0fm%.0fs", remaining/60, float64(int(remaining)%60))
-						} else {
-							hours := int(remaining / 3600)
-							mins := int((remaining - float64(hours)*3600) / 60)
-							secs := int(remaining - float64(hours)*3600 - float64(mins)*60)
-							estimateStr = fmt.Sprintf("%dh%dm%ds", hours, mins, secs)
-						}
-					} else {
-						estimateStr = "N/A"
-					}
-				} else {
-					estimateStr = "N/A"
-				}
-
-				elapsedSeconds := time.Since(start).Seconds()
-				readBps := float64(bytesRead) / elapsedSeconds
-				writeBps := float64(cw.count) / elapsedSeconds
-
-				fmt.Fprintf(writer,
-					"Byte Count: Read: %s (%d bytes), Written: %s (%d bytes)\n",
-					formatBytes(bytesRead), bytesRead,
-					formatBytes(cw.count), cw.count)
-				fmt.Fprintf(writer, "Elapsed Time: %s\n", elapsed)
-				fmt.Fprintf(writer, "Estimated Time: %s\n", estimateStr)
-				fmt.Fprintf(writer, "Read Speed: %s\n", formatSpeed(readBps))
-				fmt.Fprintf(writer, "Write Speed: %s\n", formatSpeed(writeBps))
-
-				writer.Flush()
-				lastUpdate = time.Now()
-			}
-		}
-
-		if err != nil {
-			if err == io.EOF {
-				// Final update at the end
-				elapsed := time.Since(start).Truncate(time.Second)
-				var estimateStr string
-				if totalSize > 0 && bytesRead > 0 {
-					elapsedSeconds := time.Since(start).Seconds()
-					if elapsedSeconds > 0 {
-						rate := float64(bytesRead) / elapsedSeconds
-						remaining := float64(totalSize-bytesRead) / rate
-						if remaining < 0 {
-							remaining = 0
-						}
-						// Format as human-readable time (e.g., "1m30s" or "45s")
-						if remaining < 60 {
-							estimateStr = fmt.Sprintf("%.0fs", remaining)
-						} else if remaining < 3600 {
-							estimateStr = fmt.Sprintf("%.0fm%.0fs", remaining/60, float64(int(remaining)%60))
-						} else {
-							hours := int(remaining / 3600)
-							mins := int((remaining - float64(hours)*3600) / 60)
-							secs := int(remaining - float64(hours)*3600 - float64(mins)*60)
-							estimateStr = fmt.Sprintf("%dh%dm%ds", hours, mins, secs)
-						}
-					} else {
-						estimateStr = "N/A"
-					}
-				} else {
-					estimateStr = "N/A"
-				}
-
-				elapsedSeconds := time.Since(start).Seconds()
-				readBps := float64(bytesRead) / elapsedSeconds
-				writeBps := float64(cw.count) / elapsedSeconds
-
-				fmt.Fprintf(writer,
-					"Byte Count: Read: %s (%d bytes), Written: %s (%d bytes)\n",
-					formatBytes(bytesRead), bytesRead,
-					formatBytes(cw.count), cw.count)
-				fmt.Fprintf(writer, "Elapsed Time: %s\n", elapsed)
-				fmt.Fprintf(writer, "Estimated Time: %s\n", estimateStr)
-				fmt.Fprintf(writer, "Read Speed: %s\n", formatSpeed(readBps))
-				fmt.Fprintf(writer, "Write Speed: %s\n", formatSpeed(writeBps))
-				writer.Flush()
-				break
-			} else {
-				fmt.Fprintln(writer.Bypass(), "Error reading from disk:", err.Error())
-				writer.Stop()
-				return
-			}
-		}
+	// Use the common compression function
+	err = compressFromReader(disk, outputfile, compressionAlgorithm, totalSize)
+	if err != nil {
+		fmt.Printf("Error during compression: %v\n", err)
+		return
 	}
-
-	writer.Stop() // stop the live writer
-
-	totalBytes := bytesRead
-	fmt.Println() // new line after finishing updates
-	fmt.Println("Written:", formatBytes(totalBytes), "(", totalBytes, "bytes )")
-
-	// Close zipWriter if we have one
-	if zipWriter != nil {
-		err := zipWriter.Close()
-		if err != nil {
-			fmt.Println("Failed to close zip writer:", err.Error())
-		}
-	} else {
-		// If the compression writer implements Close, call it
-		if wc, ok := compressedWriter.(io.WriteCloser); ok {
-			wc.Close()
-		}
-	}
-
-	finalElapsed := time.Since(start).Truncate(time.Second)
-	finalElapsedSeconds := time.Since(start).Seconds()
-	finalReadBps := float64(bytesRead) / finalElapsedSeconds
-	finalWriteBps := float64(cw.count) / finalElapsedSeconds
-
-	// Calculate compression ratio: original_size / compressed_size
-	var compressionRatio string
-	if cw.count > 0 {
-		ratio := float64(totalBytes) / float64(cw.count)
-		compressionRatio = fmt.Sprintf("%.2f:1", ratio)
-	} else {
-		compressionRatio = "N/A"
-	}
-
-	fmt.Printf("Total actual time: %s (%s read, %s write) Compression ratio: %s\n",
-		finalElapsed, formatSpeed(finalReadBps), formatSpeed(finalWriteBps), compressionRatio)
 }
