@@ -1,3 +1,5 @@
+//go:build linux
+
 package main
 
 const (
@@ -19,6 +21,42 @@ LastLBA        : {{.Partition.LastLBA}}
 Total Sectors  : {{.TotalSectors}}
 Total Size     : {{.Total}}
 `
+)
+
+var (
+	sectorSize uint64
+	appversion = "0.4.33"
+)
+
+// DataSizeNumber is a type constraint that allows any signed or unsigned integer type.
+type dataSizeNumber interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~uintptr
+}
+
+// Unit represents a data size unit with its name and threshold.
+type Unit struct {
+	Name      string
+	Threshold uint64
+}
+
+// Predefined units in ascending order.
+var units = []Unit{
+	{"PB", pb},
+	{"TB", tb},
+	{"GB", gb},
+	{"MB", mb},
+	{"KB", kb},
+	{"bytes", 1},
+}
+
+const (
+	kb = 1 << 10
+	mb = 1 << 20
+	gb = 1 << 30
+	tb = 1 << 40
+	pb = 1 << 50
 )
 
 type gptHeader struct {
@@ -60,6 +98,7 @@ type gptPartitionDisplay struct {
 	TypeGUIDStr   string
 	UniqueGUIDStr string
 }
+
 type mbrPartition struct {
 	Status      uint8
 	_           [3]byte

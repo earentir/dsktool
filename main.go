@@ -1,3 +1,4 @@
+// Package main provides dsktool, a comprehensive disk management utility.
 package main
 
 import (
@@ -30,7 +31,7 @@ func init() {
 		Aliases: []string{"d", "disk"},
 		Short:   "List Disks",
 		Long:    "List all available disks on the system",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			listDisks()
 		},
 	}
@@ -42,7 +43,7 @@ func init() {
 		Short:   "List Partitions",
 		Long:    "List partitions on a specified disk device",
 		Args:    cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, args []string) {
 			deviceToRead := args[0]
 			checkForPerms(deviceToRead)
 			listPartitions(deviceToRead)
@@ -74,7 +75,7 @@ func init() {
 		Aliases: []string{"b", "bench"},
 		Short:   "Benchmark Disk",
 		Long:    "Run disk benchmark tests",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(cmd *cobra.Command, _ []string) {
 			size, _ := cmd.Flags().GetInt("size")
 			dir, _ := cmd.Flags().GetString("dir")
 			iterations, _ := cmd.Flags().GetInt("iterations")

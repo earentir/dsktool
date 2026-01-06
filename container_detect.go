@@ -11,9 +11,13 @@ import (
 // ContainerType represents detected container/volume manager types
 type ContainerType string
 
+// Container type constants for different volume manager types.
 const (
-	ContainerLUKS   ContainerType = "LUKS"
+	// ContainerLUKS represents Linux Unified Key Setup encryption
+	ContainerLUKS ContainerType = "LUKS"
+	// ContainerLVM2PV represents LVM2 Physical Volume
 	ContainerLVM2PV ContainerType = "LVM2PV"
+	// ContainerMDRAID represents Linux MD RAID
 	ContainerMDRAID ContainerType = "MDRAID"
 )
 
@@ -24,8 +28,8 @@ type ContainerInfo struct {
 	Metadata    map[string]string
 }
 
-// detectLUKS detects LUKS encryption container
-func detectLUKS(file *os.File, offset int64) (*ContainerInfo, error) {
+// DetectLUKS detects LUKS encryption container
+func DetectLUKS(file *os.File, offset int64) (*ContainerInfo, error) {
 	buf := make([]byte, 64)
 	_, err := file.ReadAt(buf, offset)
 	if err != nil {
@@ -55,8 +59,8 @@ func detectLUKS(file *os.File, offset int64) (*ContainerInfo, error) {
 	}, nil
 }
 
-// detectLVM2PV detects LVM2 Physical Volume
-func detectLVM2PV(file *os.File, offset int64, sectorSize uint64) (*ContainerInfo, error) {
+// DetectLVM2PV detects LVM2 Physical Volume
+func DetectLVM2PV(file *os.File, offset int64, sectorSize uint64) (*ContainerInfo, error) {
 	// Check multiple offsets like parttool does
 	offsets := []int64{0, int64(sectorSize), 4 * int64(sectorSize), 8 * int64(sectorSize), 4096}
 
@@ -97,8 +101,8 @@ func detectLVM2PV(file *os.File, offset int64, sectorSize uint64) (*ContainerInf
 	return nil, fmt.Errorf("no lvm2 pv")
 }
 
-// detectMDRAID detects Linux MD RAID
-func detectMDRAID(file *os.File, offset int64, sizeBytes int64, maxScanBytes int64) (*ContainerInfo, error) {
+// DetectMDRAID detects Linux MD RAID
+func DetectMDRAID(file *os.File, offset int64, sizeBytes int64, maxScanBytes int64) (*ContainerInfo, error) {
 	if maxScanBytes <= 0 {
 		maxScanBytes = 8 * 1024 * 1024 // 8 MiB default
 	}
@@ -160,22 +164,22 @@ func detectMDRAID(file *os.File, offset int64, sizeBytes int64, maxScanBytes int
 	return nil, fmt.Errorf("no mdraid")
 }
 
-// detectContainers scans for container/volume manager signatures
-func detectContainers(file *os.File, offset int64, sizeBytes int64, sectorSize uint64) []ContainerInfo {
+// DetectContainers scans for container/volume manager signatures
+func DetectContainers(file *os.File, offset int64, sizeBytes int64, sectorSize uint64) []ContainerInfo {
 	var containers []ContainerInfo
 
 	// Try LUKS at offset
-	if luks, err := detectLUKS(file, offset); err == nil {
+	if luks, err := DetectLUKS(file, offset); err == nil {
 		containers = append(containers, *luks)
 	}
 
 	// Try LVM2PV at offset
-	if lvm, err := detectLVM2PV(file, offset, sectorSize); err == nil {
+	if lvm, err := DetectLVM2PV(file, offset, sectorSize); err == nil {
 		containers = append(containers, *lvm)
 	}
 
 	// Try MDRAID (scans multiple locations)
-	if mdraid, err := detectMDRAID(file, offset, sizeBytes, 8*1024*1024); err == nil {
+	if mdraid, err := DetectMDRAID(file, offset, sizeBytes, 8*1024*1024); err == nil {
 		containers = append(containers, *mdraid)
 	}
 

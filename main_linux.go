@@ -27,7 +27,7 @@ func printDiskBytes(diskDevice string, numOfBytes int, startIndex int64) {
 
 func listPartitions(diskDevice string) {
 	var diskType string
-	//Start the partition table parsing
+	// Start the partition table parsing
 	file, err := os.Open(diskDevice)
 	if err != nil {
 		log.Fatalf("Error opening disk: %v", err)
@@ -189,7 +189,7 @@ func readMBRPartitions(file *os.File, diskDevice string) {
 
 	fmt.Println("Partitions:")
 	partNum := 1
-	for i, part := range mbr.Partitions {
+	for _, part := range mbr.Partitions {
 		if part.Sectors != 0 {
 			// Check if this is an extended partition
 			if isExtendedType(part.Type) {

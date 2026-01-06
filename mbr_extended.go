@@ -58,9 +58,7 @@ func readEBRChain(file *os.File, sizeBytes int64, sectorSize uint64, baseLBA uin
 			// Validate bounds if we know the disk size
 			if sizeBytes > 0 {
 				maxLBA := uint64(sizeBytes) / uint64(sectorSize)
-				if startLBA > maxLBA || endLBA > maxLBA {
-					// Skip invalid partition but continue chain
-				} else {
+				if startLBA <= maxLBA && endLBA <= maxLBA {
 					logicalPartitions = append(logicalPartitions, mbrPartition{
 						Status:      e1.Status,
 						Type:        e1.Type,

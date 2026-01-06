@@ -160,7 +160,7 @@ func listDisks() {
 
 	for i := 0; i < 26; i++ {
 		if driveBits&(1<<uint(i)) != 0 {
-			driveLetter := string('A' + i)
+			driveLetter := string(rune('A' + i))
 			fmt.Printf("%s:\\\n", driveLetter)
 		}
 	}
