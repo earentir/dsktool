@@ -436,6 +436,11 @@ func getBlockDeviceSize(devPath string) (int64, error) {
 	return int64(uint64(blockSize) * blockCount), nil
 }
 
+// getBlockDeviceSizePlatformImpl is the Darwin implementation
+func getBlockDeviceSizePlatformImpl(devPath string) (int64, error) {
+	return getBlockDeviceSizeFromPath(devPath)
+}
+
 // getBlockDeviceSizeFromPath is a helper that opens the device and gets its size
 func getBlockDeviceSizeFromPath(devPath string) (int64, error) {
 	f, err := os.Open(devPath)

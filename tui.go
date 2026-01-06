@@ -36,6 +36,11 @@ type tuiState struct {
 	// Error message state
 	showError    bool
 	errorMessage string
+	// Create partition form state
+	showCreatePartitionForm    bool
+	createPartitionForm        PartitionCreateForm
+	showCreatePartitionConfirm bool
+	createPartitionPreview     PartitionInfo
 }
 
 // runTUI is the main entry point for the TUI command
@@ -48,13 +53,15 @@ func runTUI() {
 	}
 
 	state := &tuiState{
-		disks:                disks,
-		selectedIndex:        0,
-		showingPartitions:    false,
-		selectedPartitionIdx: 0,
-		showPopup:            false,
-		selectedOptionIdx:    0,
-		showConfirm:          false,
+		disks:                      disks,
+		selectedIndex:              0,
+		showingPartitions:          false,
+		selectedPartitionIdx:       0,
+		showPopup:                  false,
+		selectedOptionIdx:          0,
+		showCreatePartitionForm:    false,
+		showCreatePartitionConfirm: false,
+		showConfirm:                false,
 	}
 
 	// Run the interactive TUI
@@ -91,7 +98,7 @@ func (s *tuiState) runInteractiveTUI() {
 		switch ev := ev.(type) {
 		case *tcell.EventKey:
 			// Only quit if no popups/dialogs are open
-			if !s.showPopup && !s.showConfirm && !s.showError {
+			if !s.showPopup && !s.showConfirm && !s.showError && !s.showCreatePartitionForm && !s.showCreatePartitionConfirm {
 				if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
 					return
 				}
@@ -279,6 +286,16 @@ func (s *tuiState) renderPartitionsTUI(screen tcell.Screen) {
 	// Render error dialog on top if active
 	if s.showError {
 		s.renderErrorDialog(screen, width, height)
+		return
+	}
+	// Render create partition confirmation on top
+	if s.showCreatePartitionConfirm {
+		s.renderCreatePartitionConfirm(screen, width, height)
+		return
+	}
+	// Render create partition form on top
+	if s.showCreatePartitionForm {
+		s.renderCreatePartitionForm(screen, width, height)
 		return
 	}
 	// Render popup or confirmation dialog on top if active
@@ -588,6 +605,34 @@ func (s *tuiState) handleKeyEvent(ev *tcell.EventKey, _ tcell.Screen) bool {
 		return false
 	}
 
+	// Handle create partition confirmation
+	if s.showCreatePartitionConfirm {
+		switch ev.Key() {
+		case tcell.KeyEnter:
+			// Confirm creation
+			if s.selectedOptionIdx == 0 { // "Yes"
+				s.performCreatePartition()
+			}
+			s.showCreatePartitionConfirm = false
+			return false
+		case tcell.KeyEsc:
+			s.showCreatePartitionConfirm = false
+			s.showCreatePartitionForm = true // Go back to form
+			return false
+		case tcell.KeyLeft, tcell.KeyRight:
+			// Toggle Yes/No
+			s.selectedOptionIdx = 1 - s.selectedOptionIdx
+			return false
+		}
+		return false
+	}
+
+	// Handle create partition form
+	if s.showCreatePartitionForm {
+		s.handleCreatePartitionFormKey(ev)
+		return false
+	}
+
 	// Handle popup/confirm dialog keys
 	if s.showConfirm {
 		switch ev.Key() {
@@ -660,10 +705,15 @@ func (s *tuiState) handleKeyEvent(ev *tcell.EventKey, _ tcell.Screen) bool {
 					// Future: implement modify
 					s.showPopup = false
 				} else if option == "Create Partition" {
-					// Future: implement create partition
+					// Show create partition form
 					s.showPopup = false
-					s.showError = true
-					s.errorMessage = "Create partition functionality coming soon"
+					if len(s.partitions) > 0 && s.selectedPartitionIdx >= 0 && s.selectedPartitionIdx < len(s.partitions) {
+						selectedPart := s.partitions[s.selectedPartitionIdx]
+						if selectedPart.Unused {
+							s.initCreatePartitionForm(selectedPart)
+							s.showCreatePartitionForm = true
+						}
+					}
 				}
 			}
 			return false

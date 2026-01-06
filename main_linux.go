@@ -329,6 +329,11 @@ func listDisks() {
 }
 
 // getBlockDeviceSize retrieves the total size of the block device using an ioctl call
+// getBlockDeviceSizePlatformImpl is the Linux implementation
+func getBlockDeviceSizePlatformImpl(devPath string) (int64, error) {
+	return getBlockDeviceSize(devPath)
+}
+
 func getBlockDeviceSize(devPath string) (int64, error) {
 	f, err := os.Open(devPath)
 	if err != nil {
