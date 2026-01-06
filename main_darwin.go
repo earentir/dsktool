@@ -384,92 +384,17 @@ func printFirstNBytes(device string, numOfBytes int, startIndex int64) error {
 }
 
 func listDisks() {
-	listDisksFromDev()
-}
-
-func listDisksFromDev() {
-	// List disks from /dev/disk*
-	entries, err := os.ReadDir("/dev")
-	if err != nil {
-		fmt.Printf("Error reading /dev: %v\n", err)
-		return
-	}
-
-	diskMap := make(map[string]bool)
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, "disk") && len(name) > 4 {
-			// Check if it matches pattern "disk" + digits (e.g., "disk0", "disk1")
-			// or "disk" + digits + "s" + digits (e.g., "disk0s1")
-			if len(name) == 5 {
-				// Check if it's exactly "disk" + single digit (e.g., "disk0")
-				if name[4] >= '0' && name[4] <= '9' {
-					diskMap[name] = true
-				}
-			} else if len(name) > 5 && name[4] >= '0' && name[4] <= '9' {
-				// Check if it's "disk" + digits + "s" (a partition)
-				if idx := strings.Index(name[4:], "s"); idx > 0 {
-					// Extract base disk name (e.g., "disk0" from "disk0s1")
-					baseName := name[:4+idx]
-					diskMap[baseName] = true
-				} else {
-					// It's "disk" + multiple digits (e.g., "disk10")
-					// Check if all characters after "disk" are digits
-					allDigits := true
-					for i := 4; i < len(name); i++ {
-						if name[i] < '0' || name[i] > '9' {
-							allDigits = false
-							break
-						}
-					}
-					if allDigits {
-						diskMap[name] = true
-					}
-				}
-			}
-		}
-	}
-
-	for diskName := range diskMap {
-		devPath := "/dev/" + diskName
-		totalSize, err := getBlockDeviceSize(devPath)
-		if err != nil {
-			// Handle different error types
-			errStr := err.Error()
-			if strings.Contains(errStr, "permission") || strings.Contains(errStr, "not permitted") {
-				fmt.Printf("%s - (Size unavailable: requires root access)\n", devPath)
-				continue
-			} else if strings.Contains(errStr, "resource busy") || strings.Contains(errStr, "device busy") {
-				// Try raw device as fallback
-				rawPath := strings.Replace(devPath, "/dev/disk", "/dev/rdisk", 1)
-				totalSize, err = getBlockDeviceSizeFromPath(rawPath)
-				if err != nil {
-					fmt.Printf("%s - (Device busy, could not read size)\n", devPath)
-					continue
-				}
-				// Continue with the size we got from raw device
+	disks := getDiskListData()
+	for _, disk := range disks {
+		if disk.Mounted {
+			fmt.Printf("%s %s\n", disk.Path, disk.MountInfo)
+		} else {
+			if disk.Size > 0 {
+				fmt.Printf("%s - Total: %s %s\n", disk.Path, disk.SizeStr, disk.MountInfo)
 			} else {
-				fmt.Printf("%s - Error getting size: %v\n", devPath, err)
-				continue
+				fmt.Printf("%s - %s\n", disk.Path, disk.SizeStr)
 			}
 		}
-
-		// Try to find mount point
-		mountPoint, err := findMountPointForDevice(devPath)
-		if err != nil {
-			fmt.Printf("%s - Total: %s (No filesystem mount found)\n", devPath, formatBytes(totalSize))
-			continue
-		}
-
-		// Get filesystem usage if mounted
-		totalFs, usedFs, freeFs, err := getFsSpace(mountPoint)
-		if err != nil {
-			fmt.Printf("%s - Total: %s, error reading filesystem: %v\n", devPath, formatBytes(totalSize), err)
-			continue
-		}
-
-		fmt.Printf("%s (mounted on %s) - Total: %s, Used: %s, Free: %s\n",
-			devPath, mountPoint, formatBytes(totalFs), formatBytes(usedFs), formatBytes(freeFs))
 	}
 }
 

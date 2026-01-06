@@ -152,17 +152,9 @@ func driveLetterToDiskNumber(driveLetter string) (int, error) {
 }
 
 func listDisks() {
-	driveBits, err := windows.GetLogicalDrives()
-	if err != nil {
-		fmt.Printf("Failed to get logical drives: %v\n", err)
-		return
-	}
-
-	for i := 0; i < 26; i++ {
-		if driveBits&(1<<uint(i)) != 0 {
-			driveLetter := string(rune('A' + i))
-			fmt.Printf("%s:\\\n", driveLetter)
-		}
+	disks := getDiskListData()
+	for _, disk := range disks {
+		fmt.Printf("%s\n", disk.Path)
 	}
 }
 

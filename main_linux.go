@@ -314,58 +314,17 @@ func checkWSL() bool {
 }
 
 func listDisks() {
-	blockDevices, err := os.ReadDir("/sys/class/block")
-	if err != nil {
-		fmt.Printf("Error reading /sys/class/block: %v\n", err)
-		return
-	}
-
-	for _, bd := range blockDevices {
-		devName := bd.Name()
-
-		// Filter out devices that are known not to be physical disks
-		// Define the prefixes to exclude
-		excludePrefixes := []string{"loop", "zram", "ram"}
-
-		// Check if devName starts with any of the excluded prefixes
-		shouldContinue := false
-		for _, prefix := range excludePrefixes {
-			if strings.HasPrefix(devName, prefix) {
-				shouldContinue = true
-				break
+	disks := getDiskListData()
+	for _, disk := range disks {
+		if disk.Mounted {
+			fmt.Printf("%s %s\n", disk.Path, disk.MountInfo)
+		} else {
+			if disk.Size > 0 {
+				fmt.Printf("%s - Total: %s %s\n", disk.Path, disk.SizeStr, disk.MountInfo)
+			} else {
+				fmt.Printf("%s - %s %s\n", disk.Path, disk.SizeStr, disk.MountInfo)
 			}
 		}
-
-		if shouldContinue {
-			continue
-		}
-
-		devPath := "/dev/" + devName
-
-		// Get the total size of the block device
-		totalSize, err := getBlockDeviceSize(devPath)
-		if err != nil {
-			fmt.Printf("Error getting size for %s: %v\n", devPath, err)
-			continue
-		}
-
-		// Attempt to find a mount point for this device
-		mountPoint, err := findMountPointForDevice(devPath)
-		if err != nil {
-			// No mount point found
-			fmt.Printf("%s - Total: %s (No filesystem mount found)\n", devPath, formatBytes(totalSize))
-			continue
-		}
-
-		// Get filesystem usage if mounted
-		totalFs, usedFs, freeFs, err := getFsSpace(mountPoint)
-		if err != nil {
-			fmt.Printf("%s - Total: %d bytes, error reading filesystem: %v\n", devPath, totalSize, err)
-			continue
-		}
-
-		fmt.Printf("%s (mounted on %s) - Total: %s, Used: %s, Free: %s\n",
-			devPath, mountPoint, formatBytes(totalFs), formatBytes(usedFs), formatBytes(freeFs))
 	}
 }
 

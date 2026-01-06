@@ -117,10 +117,22 @@ func init() {
 	}
 	imageCmd.Flags().String("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, s2, zlib, zstd)")
 
+	// TUI command
+	var tuiCmd = &cobra.Command{
+		Use:     "tui",
+		Aliases: []string{"interactive"},
+		Short:   "Interactive TUI disk selector",
+		Long:    "Interactive terminal UI for browsing disks and partitions using arrow keys",
+		Run: func(_ *cobra.Command, _ []string) {
+			runTUI()
+		},
+	}
+
 	// Add all commands to root
 	rootCmd.AddCommand(listDisksCmd)
 	rootCmd.AddCommand(listPartitionsCmd)
 	rootCmd.AddCommand(listBytesCmd)
 	rootCmd.AddCommand(benchmarkCmd)
 	rootCmd.AddCommand(imageCmd)
+	rootCmd.AddCommand(tuiCmd)
 }
