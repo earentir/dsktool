@@ -339,6 +339,9 @@ func (s *tuiState) renderPartitionsTUI(screen tcell.Screen) {
 				rowStyle = tcell.StyleDefault.
 					Foreground(tcell.ColorBlack).
 					Background(tcell.ColorWhite)
+			} else if part.Unused {
+				// Unused space - dimmed style but still selectable
+				rowStyle = tcell.StyleDefault.Dim(true)
 			} else {
 				rowStyle = tcell.StyleDefault
 			}
@@ -394,10 +397,12 @@ func (s *tuiState) renderPartitionsTUI(screen tcell.Screen) {
 			}
 
 			displayName := part.FileSystem
-			if displayName == "" {
+			if part.Unused {
+				displayName = "Unused"
+			} else if displayName == "" {
 				displayName = "Unknown"
 			}
-			if part.Name != "" && part.Name != fmt.Sprintf("Partition %d", part.Number) {
+			if part.Name != "" && part.Name != fmt.Sprintf("Partition %d", part.Number) && !part.Unused {
 				displayName = part.Name
 			}
 
@@ -437,44 +442,63 @@ func (s *tuiState) renderPartitionsTUI(screen tcell.Screen) {
 		var leftText string  // Mount point (left aligned)
 		var rightText string // Partition info (right aligned)
 
-		// Build left text with mount point
-		if selectedPart.Mounted && selectedPart.MountPoint != "" {
-			leftText = fmt.Sprintf("Mounted on: %s", selectedPart.MountPoint)
+		if selectedPart.Unused {
+			// Special handling for unused space
+			leftText = "Unpartitioned space"
+			var details []string
+			if selectedPart.Size != "" {
+				details = append(details, "Size: "+selectedPart.Size)
+			}
+			if selectedPart.SectorSize > 0 {
+				details = append(details, fmt.Sprintf("Sector: %d bytes", selectedPart.SectorSize))
+			}
+			if selectedPart.FirstLBA > 0 {
+				details = append(details, fmt.Sprintf("FirstLBA: %d", selectedPart.FirstLBA))
+			}
+			if selectedPart.LastLBA > 0 {
+				details = append(details, fmt.Sprintf("LastLBA: %d", selectedPart.LastLBA))
+			}
+			rightText = strings.Join(details, " | ")
 		} else {
-			leftText = "Not mounted"
-		}
+			// Build left text with mount point
+			if selectedPart.Mounted && selectedPart.MountPoint != "" {
+				leftText = fmt.Sprintf("Mounted on: %s", selectedPart.MountPoint)
+			} else {
+				leftText = "Not mounted"
+			}
 
-		// Build right text with partition details
-		var details []string
-		if selectedPart.Size != "" {
-			details = append(details, "Size: "+selectedPart.Size)
-		}
-		if selectedPart.SectorSize > 0 {
-			details = append(details, fmt.Sprintf("Sector: %d bytes", selectedPart.SectorSize))
-		}
-		if selectedPart.TypeGUID != "" && selectedPart.TypeGUID != "-" {
-			details = append(details, "TypeGUID: "+selectedPart.TypeGUID)
-		}
-		if selectedPart.UniqueGUID != "" && selectedPart.UniqueGUID != "-" {
-			details = append(details, "UniqueGUID: "+selectedPart.UniqueGUID)
-		}
-		if selectedPart.FirstLBA > 0 {
-			details = append(details, fmt.Sprintf("FirstLBA: %d", selectedPart.FirstLBA))
-		}
-		if selectedPart.LastLBA > 0 {
-			details = append(details, fmt.Sprintf("LastLBA: %d", selectedPart.LastLBA))
-		}
+			// Build right text with partition details
+			var details []string
+			if selectedPart.Size != "" {
+				details = append(details, "Size: "+selectedPart.Size)
+			}
+			if selectedPart.SectorSize > 0 {
+				details = append(details, fmt.Sprintf("Sector: %d bytes", selectedPart.SectorSize))
+			}
+			if selectedPart.TypeGUID != "" && selectedPart.TypeGUID != "-" {
+				details = append(details, "TypeGUID: "+selectedPart.TypeGUID)
+			}
+			if selectedPart.UniqueGUID != "" && selectedPart.UniqueGUID != "-" {
+				details = append(details, "UniqueGUID: "+selectedPart.UniqueGUID)
+			}
+			if selectedPart.FirstLBA > 0 {
+				details = append(details, fmt.Sprintf("FirstLBA: %d", selectedPart.FirstLBA))
+			}
+			if selectedPart.LastLBA > 0 {
+				details = append(details, fmt.Sprintf("LastLBA: %d", selectedPart.LastLBA))
+			}
 
-		// Add filesystem info if mounted
-		if selectedPart.Mounted && selectedPart.MountInfo != "" {
-			if idx := strings.Index(selectedPart.MountInfo, " - Total: "); idx != -1 {
-				fsInfo := selectedPart.MountInfo[idx+3:] // Skip " - "
-				rightText = fsInfo
+			// Add filesystem info if mounted
+			if selectedPart.Mounted && selectedPart.MountInfo != "" {
+				if idx := strings.Index(selectedPart.MountInfo, " - Total: "); idx != -1 {
+					fsInfo := selectedPart.MountInfo[idx+3:] // Skip " - "
+					rightText = fsInfo
+				} else {
+					rightText = strings.Join(details, " | ")
+				}
 			} else {
 				rightText = strings.Join(details, " | ")
 			}
-		} else {
-			rightText = strings.Join(details, " | ")
 		}
 
 		// Write left text (mount point)

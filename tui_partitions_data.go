@@ -22,6 +22,7 @@ type PartitionInfo struct {
 	MountPoint   string // Mount point if mounted
 	MountInfo    string // Full mount info with filesystem stats
 	Mounted      bool   // Whether partition is mounted
+	Unused       bool   // True if this represents unpartitioned space (not selectable)
 }
 
 // getPartitionsData returns structured partition information

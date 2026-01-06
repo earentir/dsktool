@@ -131,6 +131,45 @@ func getGPTPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 		})
 	}
 
+	// Calculate unused space at the end
+	// Get total disk size
+	var totalDiskSectors uint64
+	if stat, err := file.Stat(); err == nil {
+		totalDiskSectors = uint64(stat.Size()) / sectorSize
+	} else {
+		if size, err := getBlockDeviceSize(diskDevice); err == nil {
+			totalDiskSectors = uint64(size) / sectorSize
+		}
+	}
+
+	// Find the last partition's end
+	var lastPartitionEnd uint64
+	for _, part := range partitions {
+		if part.LastLBA > lastPartitionEnd {
+			lastPartitionEnd = part.LastLBA
+		}
+	}
+
+	// Add unused space if there's any
+	if totalDiskSectors > 0 && lastPartitionEnd > 0 && lastPartitionEnd < totalDiskSectors-1 {
+		unusedStart := lastPartitionEnd + 1
+		unusedSectors := totalDiskSectors - unusedStart
+		if unusedSectors > 0 {
+			partitions = append(partitions, PartitionInfo{
+				Number:       len(partitions) + 1,
+				Name:         "Unused",
+				Type:         "  ",
+				FileSystem:   "",
+				Size:         formatBytes(unusedSectors * sectorSize),
+				FirstLBA:     unusedStart,
+				LastLBA:      totalDiskSectors - 1,
+				TotalSectors: unusedSectors,
+				SectorSize:   sectorSize,
+				Unused:       true,
+			})
+		}
+	}
+
 	return partitions, nil
 }
 
@@ -253,6 +292,46 @@ func getMBRPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 				})
 				partNum++
 			}
+		}
+	}
+
+	// Calculate unused space at the end
+	// Get total disk size
+	var totalDiskSectors uint64
+	if stat, err := file.Stat(); err == nil {
+		totalDiskSectors = uint64(stat.Size()) / sectorSize
+	} else {
+		if size, err := getBlockDeviceSize(diskDevice); err == nil {
+			totalDiskSectors = uint64(size) / sectorSize
+		}
+	}
+
+	// Find the last partition's end
+	var lastPartitionEnd uint64
+	for _, part := range partitions {
+		partEnd := part.FirstLBA + part.TotalSectors - 1
+		if partEnd > lastPartitionEnd {
+			lastPartitionEnd = partEnd
+		}
+	}
+
+	// Add unused space if there's any
+	if totalDiskSectors > 0 && lastPartitionEnd > 0 && lastPartitionEnd < totalDiskSectors-1 {
+		unusedStart := lastPartitionEnd + 1
+		unusedSectors := totalDiskSectors - unusedStart
+		if unusedSectors > 0 {
+			partitions = append(partitions, PartitionInfo{
+				Number:       len(partitions) + 1,
+				Name:         "Unused",
+				Type:         "  ",
+				FileSystem:   "",
+				Size:         formatBytes(unusedSectors * sectorSize),
+				FirstLBA:     unusedStart,
+				LastLBA:      unusedStart + unusedSectors - 1,
+				TotalSectors: unusedSectors,
+				SectorSize:   sectorSize,
+				Unused:       true,
+			})
 		}
 	}
 
