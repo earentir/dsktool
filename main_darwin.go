@@ -477,6 +477,9 @@ func findMountPointForDevice(devPath string) (string, error) {
 
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	baseName := filepath.Base(devPath)
+	// On macOS, normalize rdisk to disk for comparison (mount shows disk, not rdisk)
+	normalizedBaseName := strings.TrimPrefix(baseName, "r")
+	normalizedDevPath := strings.TrimPrefix(devPath, "/dev/r")
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -486,7 +489,17 @@ func findMountPointForDevice(devPath string) (string, error) {
 			mountPoint := parts[2]
 
 			// Check if this line refers to our device
-			if strings.Contains(device, baseName) || device == devPath {
+			// Try exact match first
+			if device == devPath || device == normalizedDevPath {
+				return mountPoint, nil
+			}
+			// Then try base name matches (handle both rdisk and disk)
+			deviceBase := filepath.Base(device)
+			if deviceBase == baseName || deviceBase == normalizedBaseName {
+				return mountPoint, nil
+			}
+			// Also try contains check for both versions
+			if strings.Contains(device, baseName) || strings.Contains(device, normalizedBaseName) {
 				return mountPoint, nil
 			}
 		}

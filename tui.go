@@ -27,6 +27,15 @@ type tuiState struct {
 	partitionInfo        string
 	partitions           []PartitionInfo
 	selectedPartitionIdx int
+	// Popup state
+	showPopup         bool
+	popupOptions      []string
+	selectedOptionIdx int
+	showConfirm       bool
+	confirmMessage    string
+	// Error message state
+	showError    bool
+	errorMessage string
 }
 
 // runTUI is the main entry point for the TUI command
@@ -43,6 +52,9 @@ func runTUI() {
 		selectedIndex:        0,
 		showingPartitions:    false,
 		selectedPartitionIdx: 0,
+		showPopup:            false,
+		selectedOptionIdx:    0,
+		showConfirm:          false,
 	}
 
 	// Run the interactive TUI
@@ -260,6 +272,21 @@ func (s *tuiState) renderDiskListTUI(screen tcell.Screen) {
 func (s *tuiState) renderPartitionsTUI(screen tcell.Screen) {
 	screen.Clear()
 	width, height := screen.Size()
+
+	// Render error dialog on top if active
+	if s.showError {
+		s.renderErrorDialog(screen, width, height)
+		return
+	}
+	// Render popup or confirmation dialog on top if active
+	if s.showConfirm {
+		s.renderConfirmDialog(screen, width, height)
+		return
+	}
+	if s.showPopup {
+		s.renderPopup(screen, width, height)
+		return
+	}
 
 	// Title
 	title := fmt.Sprintf("=== Partitions for %s ===", s.currentDisk)
@@ -550,6 +577,95 @@ func (s *tuiState) renderPartitionsTUI(screen tcell.Screen) {
 }
 
 func (s *tuiState) handleKeyEvent(ev *tcell.EventKey, _ tcell.Screen) bool {
+	// Handle error dialog keys first
+	if s.showError {
+		// Any key closes error dialog
+		s.showError = false
+		s.errorMessage = ""
+		return false
+	}
+
+	// Handle popup/confirm dialog keys
+	if s.showConfirm {
+		switch ev.Key() {
+		case tcell.KeyEnter:
+			// User confirmed - proceed with delete
+			if s.selectedOptionIdx == 0 { // "Yes" is selected
+				s.performDelete()
+			}
+			s.showConfirm = false
+			s.showPopup = false
+			return false
+		case tcell.KeyEsc:
+			s.showConfirm = false
+			return false
+		case tcell.KeyLeft, tcell.KeyRight:
+			// Toggle between Yes/No
+			s.selectedOptionIdx = 1 - s.selectedOptionIdx
+			return false
+		}
+		return false
+	}
+
+	if s.showPopup {
+		switch ev.Key() {
+		case tcell.KeyUp:
+			if s.selectedOptionIdx > 0 {
+				s.selectedOptionIdx--
+			}
+			return false
+		case tcell.KeyDown:
+			if s.selectedOptionIdx < len(s.popupOptions)-1 {
+				s.selectedOptionIdx++
+			}
+			return false
+		case tcell.KeyEnter:
+			// Select option
+			if s.selectedOptionIdx < len(s.popupOptions) {
+				option := s.popupOptions[s.selectedOptionIdx]
+				if option == "Unmount" {
+					// Unmount the partition
+					s.showPopup = false
+					err := unmountPartition(s.currentDisk, s.partitions[s.selectedPartitionIdx])
+					if err != nil {
+						s.showError = true
+						s.errorMessage = fmt.Sprintf("Failed to unmount partition: %v", err)
+					} else {
+						// Reload partitions to update mount status
+						partitions, err := getPartitionsData(s.currentDisk)
+						if err != nil {
+							s.showError = true
+							s.errorMessage = fmt.Sprintf("Partition unmounted but failed to refresh: %v", err)
+						} else {
+							s.partitions = partitions
+							// Adjust selected index if needed
+							if s.selectedPartitionIdx >= len(s.partitions) {
+								s.selectedPartitionIdx = len(s.partitions) - 1
+							}
+							if s.selectedPartitionIdx < 0 {
+								s.selectedPartitionIdx = 0
+							}
+						}
+					}
+				} else if option == "Delete" {
+					// Show confirmation dialog
+					s.showConfirm = true
+					s.confirmMessage = "Are you sure you want to delete this partition?"
+					s.selectedOptionIdx = 1 // Default to "No"
+					s.popupOptions = []string{"Yes", "No"}
+				} else if option == "Modify" {
+					// Future: implement modify
+					s.showPopup = false
+				}
+			}
+			return false
+		case tcell.KeyEsc:
+			s.showPopup = false
+			return false
+		}
+		return false
+	}
+
 	if s.showingPartitions {
 		// In partition view
 		switch ev.Key() {
@@ -572,8 +688,30 @@ func (s *tuiState) handleKeyEvent(ev *tcell.EventKey, _ tcell.Screen) bool {
 			}
 			return false
 		case tcell.KeyRight, tcell.KeyEnter:
-			// Future: show partition options
-			// For now, just return false to stay in partition view
+			// Show partition options popup
+			if len(s.partitions) > 0 && s.selectedPartitionIdx >= 0 && s.selectedPartitionIdx < len(s.partitions) {
+				selectedPart := s.partitions[s.selectedPartitionIdx]
+				if !selectedPart.Unused {
+					// Show options popup for real partitions
+					s.showPopup = true
+					// Build options list based on partition state
+					options := []string{}
+					if selectedPart.Mounted {
+						options = append(options, "Unmount")
+					}
+					options = append(options, "Delete", "Modify")
+					s.popupOptions = options
+					s.selectedOptionIdx = 0
+				}
+			}
+			return false
+		case tcell.KeyEsc:
+			// Close popup/confirm dialog
+			if s.showConfirm {
+				s.showConfirm = false
+			} else if s.showPopup {
+				s.showPopup = false
+			}
 			return false
 		}
 		// Check for 'b' or 'B' to go back

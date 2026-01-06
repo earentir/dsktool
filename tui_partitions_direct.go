@@ -13,9 +13,22 @@ import (
 
 // getPartitionsDataDirectPlatform gets partition data directly from disk
 func getPartitionsDataDirectPlatform(diskPath string) ([]PartitionInfo, error) {
-	file, err := os.Open(diskPath)
+	// On macOS, try rdisk first, fall back to disk if needed
+	var file *os.File
+	var err error
+	readPath := diskPath
+
+	// Try opening with the provided path first
+	file, err = os.Open(readPath)
 	if err != nil {
-		return nil, fmt.Errorf("error opening disk: %w", err)
+		// If rdisk fails and we're on macOS, try disk
+		if strings.HasPrefix(diskPath, "/dev/rdisk") {
+			readPath = strings.Replace(diskPath, "/dev/rdisk", "/dev/disk", 1)
+			file, err = os.Open(readPath)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error opening disk (tried %s): %w", readPath, err)
+		}
 	}
 	defer file.Close()
 
@@ -87,16 +100,27 @@ func getGPTPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 		uniqueGUID := guidToString(partition.UniqueGUID[:])
 
 		// Get mount point for this partition
-		// On macOS, partitions are like /dev/disk1s1, on Linux like /dev/sda1
+		// On macOS, partitions are like /dev/rdisk1s1 or /dev/disk1s1, on Linux like /dev/sda1
 		var partitionPath string
-		if strings.Contains(diskDevice, "disk") && !strings.Contains(diskDevice, "s") {
-			// macOS format: /dev/disk1 -> /dev/disk1s1
+		// Use the original diskDevice path format (rdisk or disk)
+		if strings.Contains(diskDevice, "disk") || strings.Contains(diskDevice, "rdisk") {
+			// macOS format: /dev/rdisk1 -> /dev/rdisk1s1 or /dev/disk1 -> /dev/disk1s1
 			partitionPath = fmt.Sprintf("%ss%d", diskDevice, partID)
 		} else {
 			// Linux format: /dev/sda -> /dev/sda1
 			partitionPath = fmt.Sprintf("%s%d", diskDevice, partID)
 		}
+		// Try to find mount point - on macOS, try both disk and rdisk versions
 		mountPoint, err := findMountPointForDevice(partitionPath)
+		if err != nil && strings.Contains(partitionPath, "rdisk") {
+			// If rdisk path fails, try disk path
+			diskPath := strings.Replace(partitionPath, "/dev/rdisk", "/dev/disk", 1)
+			mountPoint, err = findMountPointForDevice(diskPath)
+		} else if err != nil && strings.Contains(partitionPath, "disk") && !strings.Contains(partitionPath, "rdisk") {
+			// If disk path fails, try rdisk path
+			rdiskPath := strings.Replace(partitionPath, "/dev/disk", "/dev/rdisk", 1)
+			mountPoint, err = findMountPointForDevice(rdiskPath)
+		}
 		var mountInfo string
 		var mounted bool
 		if err != nil {
@@ -210,14 +234,24 @@ func getMBRPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 				if err == nil {
 					for _, logicalPart := range logicalParts {
 						fsType := detectFileSystem(file, int64(logicalPart.FirstSector*uint32(sectorSize)))
-						// Get mount point for this partition
-						var partitionPath string
-						if strings.Contains(diskDevice, "disk") && !strings.Contains(diskDevice, "s") {
-							partitionPath = fmt.Sprintf("%ss%d", diskDevice, partNum)
-						} else {
-							partitionPath = fmt.Sprintf("%s%d", diskDevice, partNum)
-						}
+				// Get mount point for this partition
+				var partitionPath string
+				if strings.Contains(diskDevice, "disk") || strings.Contains(diskDevice, "rdisk") {
+					partitionPath = fmt.Sprintf("%ss%d", diskDevice, partNum)
+				} else {
+					partitionPath = fmt.Sprintf("%s%d", diskDevice, partNum)
+				}
+						// Try to find mount point - on macOS, try both disk and rdisk versions
 						mountPoint, mountErr := findMountPointForDevice(partitionPath)
+						if mountErr != nil && strings.Contains(partitionPath, "rdisk") {
+							// If rdisk path fails, try disk path
+							diskPath := strings.Replace(partitionPath, "/dev/rdisk", "/dev/disk", 1)
+							mountPoint, mountErr = findMountPointForDevice(diskPath)
+						} else if mountErr != nil && strings.Contains(partitionPath, "disk") && !strings.Contains(partitionPath, "rdisk") {
+							// If disk path fails, try rdisk path
+							rdiskPath := strings.Replace(partitionPath, "/dev/disk", "/dev/rdisk", 1)
+							mountPoint, mountErr = findMountPointForDevice(rdiskPath)
+						}
 						var mountInfo string
 						var mounted bool
 						if mountErr != nil {
@@ -255,12 +289,22 @@ func getMBRPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 				fsType := detectFileSystem(file, int64(part.FirstSector*uint32(sectorSize)))
 				// Get mount point for this partition
 				var partitionPath string
-				if strings.Contains(diskDevice, "disk") && !strings.Contains(diskDevice, "s") {
+				if strings.Contains(diskDevice, "disk") || strings.Contains(diskDevice, "rdisk") {
 					partitionPath = fmt.Sprintf("%ss%d", diskDevice, partNum)
 				} else {
 					partitionPath = fmt.Sprintf("%s%d", diskDevice, partNum)
 				}
+				// Try to find mount point - on macOS, try both disk and rdisk versions
 				mountPoint, mountErr := findMountPointForDevice(partitionPath)
+				if mountErr != nil && strings.Contains(partitionPath, "rdisk") {
+					// If rdisk path fails, try disk path
+					diskPath := strings.Replace(partitionPath, "/dev/rdisk", "/dev/disk", 1)
+					mountPoint, mountErr = findMountPointForDevice(diskPath)
+				} else if mountErr != nil && strings.Contains(partitionPath, "disk") && !strings.Contains(partitionPath, "rdisk") {
+					// If disk path fails, try rdisk path
+					rdiskPath := strings.Replace(partitionPath, "/dev/disk", "/dev/rdisk", 1)
+					mountPoint, mountErr = findMountPointForDevice(rdiskPath)
+				}
 				var mountInfo string
 				var mounted bool
 				if mountErr != nil {

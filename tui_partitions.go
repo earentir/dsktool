@@ -16,9 +16,21 @@ import (
 func listPartitionsSafe(diskDevice string) (string, error) {
 	var output strings.Builder
 
-	file, err := os.Open(diskDevice)
+	// On macOS, try rdisk first, fall back to disk if needed
+	var file *os.File
+	var err error
+	readPath := diskDevice
+
+	file, err = os.Open(readPath)
 	if err != nil {
-		return "", fmt.Errorf("error opening disk: %w", err)
+		// If rdisk fails and we're on macOS, try disk
+		if strings.HasPrefix(diskDevice, "/dev/rdisk") {
+			readPath = strings.Replace(diskDevice, "/dev/rdisk", "/dev/disk", 1)
+			file, err = os.Open(readPath)
+		}
+		if err != nil {
+			return "", fmt.Errorf("error opening disk (tried %s): %w", readPath, err)
+		}
 	}
 	defer file.Close()
 
