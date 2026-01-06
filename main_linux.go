@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -58,41 +59,57 @@ func listPartitions(diskDevice string) {
 		if err != nil {
 			log.Fatalf("Error seeking disk: %v", err)
 		}
-		readMBRPartitions(file)
+		readMBRPartitions(file, diskDevice)
 		return
 	}
 	diskType = "GPT"
 
-	_, err = file.Seek(512, 0)
-	if err != nil {
-		log.Fatalf("Error seeking disk: %v", err)
-	}
-
-	header := gptHeader{}
-	err = binary.Read(file, binary.LittleEndian, &header)
+	// Read header with validation
+	headerBytes := make([]byte, 512)
+	_, err = file.ReadAt(headerBytes, 512)
 	if err != nil {
 		log.Fatalf("Error reading GPT header: %v", err)
 	}
 
-	_, err = file.Seek(int64(header.PartitionEntryLBA*512), 0)
+	header := gptHeader{}
+	err = binary.Read(bytes.NewReader(headerBytes), binary.LittleEndian, &header)
 	if err != nil {
-		log.Fatalf("Error seeking disk: %v", err)
+		log.Fatalf("Error parsing GPT header: %v", err)
 	}
 
-	partitions := make([]gptPartition, header.NumPartEntries)
+	// Validate header CRC
+	if err := validateGPTHeaderCRC(headerBytes, header.HeaderSize); err != nil {
+		log.Printf("Warning: GPT header CRC validation failed: %v", err)
+	}
 
+	// Validate header size
+	if header.HeaderSize < 92 || int(header.HeaderSize) > len(headerBytes) {
+		log.Fatalf("Invalid GPT header size: %d", header.HeaderSize)
+	}
+
+	// Read partition entries
+	tableBytes := uint64(header.NumPartEntries) * uint64(header.PartEntrySize)
+	table := make([]byte, tableBytes)
+	_, err = file.ReadAt(table, int64(header.PartitionEntryLBA*512))
+	if err != nil {
+		log.Fatalf("Error reading GPT entries: %v", err)
+	}
+
+	// Validate entries CRC
+	if err := validateGPTEntriesCRC(table, header.PartEntryArrayCRC32); err != nil {
+		log.Printf("Warning: GPT entries CRC validation failed: %v", err)
+	}
+
+	partitions := make([]gptPartition, 0, header.NumPartEntries)
 	for i := uint32(0); i < header.NumPartEntries; i++ {
+		off := uint64(i) * uint64(header.PartEntrySize)
 		partition := gptPartition{}
-		_, err = file.Seek(int64(header.PartitionEntryLBA*512)+int64(i*header.PartEntrySize), 0)
-		if err != nil {
-			log.Fatalf("Error seeking disk: %v", err)
-		}
-
-		err := binary.Read(file, binary.LittleEndian, &partition)
+		err := binary.Read(bytes.NewReader(table[off:off+uint64(header.PartEntrySize)]), binary.LittleEndian, &partition)
 		if err != nil {
 			log.Fatalf("Error reading partition entry: %v", err)
 		}
-		if partition.FirstLBA != 0 {
+		// Skip empty entries (all-zero TypeGUID)
+		if !isAllZero(partition.TypeGUID[:]) {
 			partitions = append(partitions, partition)
 		}
 	}
@@ -111,18 +128,23 @@ func listPartitions(diskDevice string) {
 			fsType := detectFileSystem(file, int64(part.FirstLBA*uint64(sectorSize)))
 			totalSectors := part.LastLBA - part.FirstLBA + 1
 
+			// Use proper GUID formatting and UTF-16LE decoding
+			partName := decodeUTF16LE(part.PartitionName[:])
+			typeGUID := guidToString(part.TypeGUID[:])
+			uniqueGUID := guidToString(part.UniqueGUID[:])
+
 			displayPartitions = append(displayPartitions, gptPartitionDisplay{
 				Disk:          diskDevice,
 				DiskType:      diskType,
 				Partition:     part,
 				PartitionName: fmt.Sprintf("%s%d", diskDevice, partID),
-				Name:          string(part.PartitionName[:]),
+				Name:          partName,
 				Filesystem:    fsType,
 				TotalSectors:  totalSectors,
 				SectorSize:    sectorSize,
 				Total:         formatBytes(totalSectors * sectorSize),
-				TypeGUIDStr:   fmt.Sprintf("%x", part.TypeGUID),
-				UniqueGUIDStr: fmt.Sprintf("%x", part.UniqueGUID),
+				TypeGUIDStr:   typeGUID,
+				UniqueGUIDStr: uniqueGUID,
 			})
 		}
 	}
@@ -141,7 +163,7 @@ func listPartitions(diskDevice string) {
 	}
 }
 
-func readMBRPartitions(file *os.File) {
+func readMBRPartitions(file *os.File, diskDevice string) {
 	mbr := mbrStruct{}
 	err := binary.Read(file, binary.LittleEndian, &mbr)
 	if err != nil {
@@ -154,11 +176,46 @@ func readMBRPartitions(file *os.File) {
 		log.Fatalf("Invalid MBR signature")
 	}
 
+	// Get device size for validation
+	var sizeBytes int64
+	if stat, err := file.Stat(); err == nil {
+		sizeBytes = stat.Size()
+	}
+	if sizeBytes <= 0 {
+		if size, err := getBlockDeviceSize(diskDevice); err == nil {
+			sizeBytes = size
+		}
+	}
+
 	fmt.Println("Partitions:")
+	partNum := 1
 	for i, part := range mbr.Partitions {
 		if part.Sectors != 0 {
-			fsType := detectFileSystem(file, int64(part.FirstSector*uint32(sectorSize)))
-			fmt.Printf("  %d. Type: 0x%02x, FirstSector: %d, Sectors: %d, FileSystem: %s, SectorSize: %d bytes, Total: %s\n", i+1, part.Type, part.FirstSector, part.Sectors, fsType, sectorSize, formatBytes(part.Sectors*uint32(sectorSize)))
+			// Check if this is an extended partition
+			if isExtendedType(part.Type) {
+				fmt.Printf("  %d. Type: 0x%02x (Extended), FirstSector: %d, Sectors: %d, SectorSize: %d bytes, Total: %s\n",
+					partNum, part.Type, part.FirstSector, part.Sectors, sectorSize, formatBytes(part.Sectors*uint32(sectorSize)))
+				partNum++
+
+				// Read logical partitions from extended partition
+				logicalParts, err := readEBRChain(file, sizeBytes, sectorSize, part.FirstSector)
+				if err != nil {
+					fmt.Printf("    Warning: Could not read extended partition chain: %v\n", err)
+				} else {
+					for _, logicalPart := range logicalParts {
+						fsType := detectFileSystem(file, int64(logicalPart.FirstSector*uint32(sectorSize)))
+						fmt.Printf("    %d. Type: 0x%02x (Logical), FirstSector: %d, Sectors: %d, FileSystem: %s, SectorSize: %d bytes, Total: %s\n",
+							partNum, logicalPart.Type, logicalPart.FirstSector, logicalPart.Sectors, fsType, sectorSize, formatBytes(logicalPart.Sectors*uint32(sectorSize)))
+						partNum++
+					}
+				}
+			} else {
+				// Regular primary partition
+				fsType := detectFileSystem(file, int64(part.FirstSector*uint32(sectorSize)))
+				fmt.Printf("  %d. Type: 0x%02x, FirstSector: %d, Sectors: %d, FileSystem: %s, SectorSize: %d bytes, Total: %s\n",
+					partNum, part.Type, part.FirstSector, part.Sectors, fsType, sectorSize, formatBytes(part.Sectors*uint32(sectorSize)))
+				partNum++
+			}
 		}
 	}
 }
