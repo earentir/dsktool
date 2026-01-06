@@ -90,11 +90,14 @@ func (s *tuiState) runInteractiveTUI() {
 		ev := screen.PollEvent()
 		switch ev := ev.(type) {
 		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
-				return
-			}
-			if ev.Rune() == 'q' || ev.Rune() == 'Q' {
-				return
+			// Only quit if no popups/dialogs are open
+			if !s.showPopup && !s.showConfirm && !s.showError {
+				if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
+					return
+				}
+				if ev.Rune() == 'q' || ev.Rune() == 'Q' {
+					return
+				}
 			}
 			if s.handleKeyEvent(ev, screen) {
 				return
@@ -656,6 +659,11 @@ func (s *tuiState) handleKeyEvent(ev *tcell.EventKey, _ tcell.Screen) bool {
 				} else if option == "Modify" {
 					// Future: implement modify
 					s.showPopup = false
+				} else if option == "Create Partition" {
+					// Future: implement create partition
+					s.showPopup = false
+					s.showError = true
+					s.errorMessage = "Create partition functionality coming soon"
 				}
 			}
 			return false
@@ -691,7 +699,12 @@ func (s *tuiState) handleKeyEvent(ev *tcell.EventKey, _ tcell.Screen) bool {
 			// Show partition options popup
 			if len(s.partitions) > 0 && s.selectedPartitionIdx >= 0 && s.selectedPartitionIdx < len(s.partitions) {
 				selectedPart := s.partitions[s.selectedPartitionIdx]
-				if !selectedPart.Unused {
+				if selectedPart.Unused {
+					// Show create partition option for unused space
+					s.showPopup = true
+					s.popupOptions = []string{"Create Partition"}
+					s.selectedOptionIdx = 0
+				} else {
 					// Show options popup for real partitions
 					s.showPopup = true
 					// Build options list based on partition state

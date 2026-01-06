@@ -45,10 +45,86 @@ func getPartitionsDataDirectPlatform(diskPath string) ([]PartitionInfo, error) {
 	sectorSize := uint64(getSectorSize(file))
 
 	// Check if GPT or MBR
-	if isGPTDiskSafe(file) {
-		return getGPTPartitionsData(file, diskPath, sectorSize)
+	isGPT := isGPTDiskSafe(file)
+	var partitions []PartitionInfo
+	var partErr error
+	if isGPT {
+		partitions, partErr = getGPTPartitionsData(file, diskPath, sectorSize)
+	} else {
+		partitions, partErr = getMBRPartitionsData(file, diskPath, sectorSize)
 	}
-	return getMBRPartitionsData(file, diskPath, sectorSize)
+
+	// If we got an error reading partitions, try to at least show unused space
+	if partErr != nil {
+		unused, unusedErr := getUnusedSpaceForEmptyDisk(file, diskPath, sectorSize, isGPT)
+		if unusedErr == nil && len(unused) > 0 {
+			return unused, nil
+		}
+		return nil, partErr
+	}
+
+	// If no partitions found, show entire disk as unused
+	if len(partitions) == 0 {
+		unused, unusedErr := getUnusedSpaceForEmptyDisk(file, diskPath, sectorSize, isGPT)
+		if unusedErr == nil && len(unused) > 0 {
+			return unused, nil
+		}
+		// If we can't get unused space, still return empty list (not an error)
+		// This allows the caller to handle it
+		return []PartitionInfo{}, nil
+	}
+
+	return partitions, nil
+}
+
+// getUnusedSpaceForEmptyDisk returns unused space for a disk with no partitions
+func getUnusedSpaceForEmptyDisk(file *os.File, diskPath string, sectorSize uint64, isGPT bool) ([]PartitionInfo, error) {
+	// Get total disk size
+	var totalDiskSectors uint64
+	if stat, err := file.Stat(); err == nil {
+		totalDiskSectors = uint64(stat.Size()) / sectorSize
+	} else {
+		if size, err := getBlockDeviceSize(diskPath); err == nil {
+			totalDiskSectors = uint64(size) / sectorSize
+		} else {
+			return nil, fmt.Errorf("cannot determine disk size: %w", err)
+		}
+	}
+
+	if totalDiskSectors == 0 {
+		return nil, fmt.Errorf("disk size is zero")
+	}
+
+	// Determine start LBA based on partition table type
+	// GPT: partitions start at LBA 34 (after protective MBR + GPT header + partition table)
+	// MBR: partitions start at LBA 1 (after MBR at LBA 0)
+	var unusedStart uint64
+	if isGPT {
+		unusedStart = 34 // GPT partition table typically ends around LBA 33
+	} else {
+		unusedStart = 1 // MBR partitions start at LBA 1
+	}
+
+	if unusedStart >= totalDiskSectors {
+		return nil, fmt.Errorf("disk too small")
+	}
+
+	unusedSectors := totalDiskSectors - unusedStart
+
+	return []PartitionInfo{
+		{
+			Number:       1,
+			Name:         "Unused",
+			Type:         "  ",
+			FileSystem:   "",
+			Size:         formatBytes(unusedSectors * sectorSize),
+			FirstLBA:     unusedStart,
+			LastLBA:      totalDiskSectors - 1,
+			TotalSectors: unusedSectors,
+			SectorSize:   sectorSize,
+			Unused:       true,
+		},
+	}, nil
 }
 
 func getGPTPartitionsData(file *os.File, diskDevice string, sectorSize uint64) ([]PartitionInfo, error) {
@@ -169,14 +245,70 @@ func getGPTPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 	// Find the last partition's end
 	var lastPartitionEnd uint64
 	for _, part := range partitions {
-		if part.LastLBA > lastPartitionEnd {
-			lastPartitionEnd = part.LastLBA
+		// Calculate end LBA (LastLBA might be 0, so calculate from FirstLBA + TotalSectors)
+		partEnd := part.FirstLBA + part.TotalSectors - 1
+		if part.LastLBA > 0 && part.LastLBA > partEnd {
+			partEnd = part.LastLBA
+		}
+		if partEnd > lastPartitionEnd {
+			lastPartitionEnd = partEnd
 		}
 	}
 
 	// Add unused space if there's any
-	if totalDiskSectors > 0 && lastPartitionEnd > 0 && lastPartitionEnd < totalDiskSectors-1 {
-		unusedStart := lastPartitionEnd + 1
+	// Handle case where there are no partitions (lastPartitionEnd = 0)
+	// GPT typically starts partitions at LBA 34 (after protective MBR + GPT header + partition table)
+	var unusedStart uint64
+	if len(partitions) == 0 {
+		// No partitions - GPT partitions start at LBA 34
+		unusedStart = 34
+	} else {
+		unusedStart = lastPartitionEnd + 1
+	}
+
+	// Always try to add unused space if we have disk size info
+	// If no partitions and we can't get size, try harder to get it
+	if len(partitions) == 0 {
+		if totalDiskSectors == 0 {
+			// Try alternative method to get disk size
+			if size, err := getBlockDeviceSize(diskDevice); err == nil {
+				totalDiskSectors = uint64(size) / sectorSize
+			}
+		}
+
+		if totalDiskSectors > 0 && unusedStart < totalDiskSectors {
+			unusedSectors := totalDiskSectors - unusedStart
+			partitions = append(partitions, PartitionInfo{
+				Number:       1,
+				Name:         "Unused",
+				Type:         "  ",
+				FileSystem:   "",
+				Size:         formatBytes(unusedSectors * sectorSize),
+				FirstLBA:     unusedStart,
+				LastLBA:      totalDiskSectors - 1,
+				TotalSectors: unusedSectors,
+				SectorSize:   sectorSize,
+				Unused:       true,
+			})
+		} else {
+			// Still show unused space even if we can't get exact size
+			// Use reasonable placeholder values that won't cause CHS calculation issues
+			// Assume a minimum 1GB disk for display purposes
+			placeholderSectors := uint64(1024 * 1024 * 1024 / 512) // 1GB in sectors
+			partitions = append(partitions, PartitionInfo{
+				Number:       1,
+				Name:         "Unused",
+				Type:         "  ",
+				FileSystem:   "",
+				Size:         "Unknown",
+				FirstLBA:     unusedStart,
+				LastLBA:      unusedStart + placeholderSectors - 1,
+				TotalSectors: placeholderSectors,
+				SectorSize:   sectorSize,
+				Unused:       true,
+			})
+		}
+	} else if totalDiskSectors > 0 && unusedStart < totalDiskSectors {
 		unusedSectors := totalDiskSectors - unusedStart
 		if unusedSectors > 0 {
 			partitions = append(partitions, PartitionInfo{
@@ -353,15 +485,70 @@ func getMBRPartitionsData(file *os.File, diskDevice string, sectorSize uint64) (
 	// Find the last partition's end
 	var lastPartitionEnd uint64
 	for _, part := range partitions {
+		// Calculate end LBA (LastLBA might be 0, so calculate from FirstLBA + TotalSectors)
 		partEnd := part.FirstLBA + part.TotalSectors - 1
+		if part.LastLBA > 0 && part.LastLBA > partEnd {
+			partEnd = part.LastLBA
+		}
 		if partEnd > lastPartitionEnd {
 			lastPartitionEnd = partEnd
 		}
 	}
 
 	// Add unused space if there's any
-	if totalDiskSectors > 0 && lastPartitionEnd > 0 && lastPartitionEnd < totalDiskSectors-1 {
-		unusedStart := lastPartitionEnd + 1
+	// Handle case where there are no partitions (lastPartitionEnd = 0)
+	// MBR typically starts partitions at LBA 1
+	var unusedStart uint64
+	if len(partitions) == 0 {
+		// No partitions - start from LBA 1
+		unusedStart = 1
+	} else {
+		unusedStart = lastPartitionEnd + 1
+	}
+
+	// Always try to add unused space if we have disk size info
+	// If no partitions and we can't get size, try harder to get it
+	if len(partitions) == 0 {
+		if totalDiskSectors == 0 {
+			// Try alternative method to get disk size
+			if size, err := getBlockDeviceSize(diskDevice); err == nil {
+				totalDiskSectors = uint64(size) / sectorSize
+			}
+		}
+
+		if totalDiskSectors > 0 && unusedStart < totalDiskSectors {
+			unusedSectors := totalDiskSectors - unusedStart
+			partitions = append(partitions, PartitionInfo{
+				Number:       1,
+				Name:         "Unused",
+				Type:         "  ",
+				FileSystem:   "",
+				Size:         formatBytes(unusedSectors * sectorSize),
+				FirstLBA:     unusedStart,
+				LastLBA:      unusedStart + unusedSectors - 1,
+				TotalSectors: unusedSectors,
+				SectorSize:   sectorSize,
+				Unused:       true,
+			})
+		} else {
+			// Still show unused space even if we can't get exact size
+			// Use reasonable placeholder values that won't cause CHS calculation issues
+			// Assume a minimum 1GB disk for display purposes
+			placeholderSectors := uint64(1024 * 1024 * 1024 / 512) // 1GB in sectors
+			partitions = append(partitions, PartitionInfo{
+				Number:       1,
+				Name:         "Unused",
+				Type:         "  ",
+				FileSystem:   "",
+				Size:         "Unknown",
+				FirstLBA:     unusedStart,
+				LastLBA:      unusedStart + placeholderSectors - 1,
+				TotalSectors: placeholderSectors,
+				SectorSize:   sectorSize,
+				Unused:       true,
+			})
+		}
+	} else if totalDiskSectors > 0 && unusedStart < totalDiskSectors {
 		unusedSectors := totalDiskSectors - unusedStart
 		if unusedSectors > 0 {
 			partitions = append(partitions, PartitionInfo{

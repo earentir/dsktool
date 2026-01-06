@@ -29,7 +29,8 @@ type PartitionInfo struct {
 func getPartitionsData(diskPath string) ([]PartitionInfo, error) {
 	// Try to get structured data directly
 	partitions, err := getPartitionsDataDirect(diskPath)
-	if err == nil && len(partitions) > 0 {
+	if err == nil {
+		// Return even if empty - it might contain unused space entry
 		return partitions, nil
 	}
 
@@ -40,7 +41,17 @@ func getPartitionsData(diskPath string) ([]PartitionInfo, error) {
 	}
 
 	// Parse the output into structured data
-	return parsePartitionOutput(output), nil
+	parsed := parsePartitionOutput(output)
+	// If parsing returned empty and we have an error from direct method,
+	// try to at least show unused space
+	if len(parsed) == 0 {
+		// Try to get unused space as fallback
+		unused, unusedErr := getPartitionsDataDirect(diskPath)
+		if unusedErr == nil && len(unused) > 0 {
+			return unused, nil
+		}
+	}
+	return parsed, nil
 }
 
 // getPartitionsDataDirect gets partition data directly without parsing text
