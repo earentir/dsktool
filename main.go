@@ -117,14 +117,14 @@ func init() {
 	}
 	imageCmd.Flags().String("compress", "gzip", "Compression method to use (gzip, bzip2, zip, snappy, s2, zlib, zstd)")
 
-	// TUI command
+	// TUI command - uses planetui
 	var tuiCmd = &cobra.Command{
 		Use:     "tui",
 		Aliases: []string{"interactive"},
 		Short:   "Interactive TUI disk selector",
-		Long:    "Interactive terminal UI for browsing disks and partitions using arrow keys",
+		Long:    "Interactive terminal UI for browsing disks and partitions. Use 'interactive' command for full-screen mode.",
 		Run: func(_ *cobra.Command, _ []string) {
-			runTUI()
+			runPlanetUITUI()
 		},
 	}
 
